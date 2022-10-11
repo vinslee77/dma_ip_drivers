@@ -56,7 +56,7 @@ static void async_io_handler(unsigned long  cb_hndl, int err)
 	struct xdma_io_cb *cb = (struct xdma_io_cb *)cb_hndl;
 	struct cdev_async_io *caio = (struct cdev_async_io *)cb->private;
 	ssize_t numbytes = 0;
-	ssize_t res, res2;
+	ssize_t res;
 	int lock_stat;
 	int rv;
 
@@ -88,38 +88,43 @@ static void async_io_handler(unsigned long  cb_hndl, int err)
 	if (!err)
 		numbytes = xdma_xfer_completion((void *)cb, xdev,
 				engine->channel, cb->write, cb->ep_addr,
-				&cb->sgt, 0, 
+				&cb->sgt, 0,
 				cb->write ? h2c_timeout * 1000 :
 					    c2h_timeout * 1000);
 
 	char_sgdma_unmap_user_buf(cb, cb->write);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 	caio->res2 |= (err < 0) ? err : 0;
 	if (caio->res2)
 		caio->err_cnt++;
+#endif
 
 	caio->cmpl_cnt++;
 	caio->res += numbytes;
 
 	if (caio->cmpl_cnt == caio->req_cnt) {
 		res = caio->res;
-		res2 = caio->res2;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
-		caio->iocb->ki_complete(caio->iocb, res, res2);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0)
+		caio->iocb->ki_complete(caio->iocb, res);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
+		caio->iocb->ki_complete(caio->iocb, res, caio->res2);
 #else
-		aio_complete(caio->iocb, res, res2);
+		aio_complete(caio->iocb, res, caio->res2);
 #endif
 skip_tran:
 		spin_unlock(&caio->lock);
 		kmem_cache_free(cdev_cache, caio);
 		kfree(cb);
 		return;
-	} 
+	}
 	spin_unlock(&caio->lock);
 	return;
 
 skip_dev_lock:
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0)
+	caio->iocb->ki_complete(caio->iocb, numbytes);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)
 	caio->iocb->ki_complete(caio->iocb, numbytes, -EBUSY);
 #else
 	aio_complete(caio->iocb, numbytes, -EBUSY);
@@ -562,12 +567,12 @@ static ssize_t cdev_aio_read(struct kiocb *iocb, const struct iovec *io,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
 static ssize_t cdev_write_iter(struct kiocb *iocb, struct iov_iter *io)
 {
-	return cdev_aio_write(iocb, io->iov, io->nr_segs, io->iov_offset);
+	return cdev_aio_write(iocb, io->__iov, io->nr_segs, io->iov_offset);
 }
 
 static ssize_t cdev_read_iter(struct kiocb *iocb, struct iov_iter *io)
 {
-	return cdev_aio_read(iocb, io->iov, io->nr_segs, io->iov_offset);
+	return cdev_aio_read(iocb, io->__iov, io->nr_segs, io->iov_offset);
 }
 #endif
 
@@ -795,7 +800,7 @@ static int ioctl_do_aperture_dma(struct xdma_engine *engine, unsigned long arg,
 
 	return io.error;
 }
-	
+
 static long char_sgdma_ioctl(struct file *file, unsigned int cmd,
 		unsigned long arg)
 {
