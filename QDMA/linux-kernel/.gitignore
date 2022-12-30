@@ -1,0 +1,10 @@
+.cache.mk
+*.o
+*.ko
+*.order
+*.symvers
+*.mod.c
+.tmp_versions
+.*o.cmd
+*o.ur-safe
+driver/src/libqdma
