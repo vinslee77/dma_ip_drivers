@@ -3,7 +3,9 @@
 *.ko
 *.order
 *.symvers
+*.mod
 *.mod.c
+*.mod.cmd
 .tmp_versions
 .*o.cmd
 *o.ur-safe
