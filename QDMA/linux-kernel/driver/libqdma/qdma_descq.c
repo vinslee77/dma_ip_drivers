@@ -63,10 +63,16 @@ static void sgl_dump(struct qdma_sw_sg *sgl, unsigned int sgcnt)
 
 u64 rdtsc_gettime(void)
 {
+#ifdef AARCH64
+	unsigned long long int val;
+	asm volatile("mrs %0, cntvct_el0" : "=r" (val));
+	return val;
+#else
 	unsigned int low, high;
 
 	asm volatile("rdtscp" : "=a" (low), "=d" (high));
 	return low | ((u64)high) << 32;
+#endif
 }
 
 int qdma_sgl_find_offset(struct qdma_request *req, struct qdma_sw_sg **sg_p,

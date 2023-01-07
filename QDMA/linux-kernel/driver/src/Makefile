@@ -22,10 +22,14 @@ $(info VF = $(VF).)
 $(info CROSS_COMPILE_FLAG = $(CROSS_COMPILE_FLAG).)
 $(info ARCH = $(ARCH).)
 
-
 MOD_NAME := qdma$(PFVF_TYPE)
 
+ARCH_ARM64 := aarch64 arm64
+
 EXTRA_CFLAGS += -DLINUX -D__KERNEL__ -DMODULE -O2 -pipe -Wall -Werror
+ifneq ($(findstring $(ARCH),$(ARCH_ARM64)),)
+EXTRA_CFLAGS += -DAARCH64
+endif
 EXTRA_CFLAGS += $(FLAGS) $(CPPFLAGS) $(EXTRA_FLAGS)
 EXTRA_CFLAGS += -I$(srcdir)/../include
 EXTRA_CFLAGS += -I$(KSRC)/../include
@@ -113,7 +117,8 @@ bin:
 ifeq ($(CROSS_COMPILE_FLAG),)
 	@$(MAKE) symverfile=$(symverfile) KBUILD_EXTRA_SYMBOLS=$(extra_symb) -C $(KOBJ) M=$(shell pwd) modules
 else
-	@$(MAKE) symverfile=$(symverfile) KBUILD_EXTRA_SYMBOLS=$(extra_symb) -C $(KOBJ)  CROSS_COMPILE=$(CROSS_COMPILE_FLAG) SUBDIRS=$(shell pwd) modules
+	@$(MAKE) symverfile=$(symverfile) KBUILD_EXTRA_SYMBOLS=$(extra_symb) -C $(KOBJ)  \
+		CROSS_COMPILE=$(CROSS_COMPILE_FLAG) M=$(shell pwd) modules
 endif
 	@cp $(MOD_NAME).ko $(bin_dir)
 
