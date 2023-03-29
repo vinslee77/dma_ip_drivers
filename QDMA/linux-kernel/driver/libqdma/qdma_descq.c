@@ -1,8 +1,8 @@
 /*
  * This file is part of the Xilinx DMA IP Core driver for Linux
  *
- * Copyright (c) 2017-2020,  Xilinx, Inc.
- * All rights reserved.
+ * Copyright (c) 2017-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022, Advanced Micro Devices, Inc. All rights reserved.
  *
  * This source code is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -1251,6 +1251,7 @@ void qdma_descq_config(struct qdma_descq *descq, struct qdma_queue_conf *qconf,
 		descq->conf.cmpl_timer_idx = qconf->cmpl_timer_idx;
 		descq->conf.fetch_credit = qconf->fetch_credit;
 		descq->conf.cmpl_cnt_th_idx = qconf->cmpl_cnt_th_idx;
+		/* Below check is applicable only for Versal family. */
 		if (descq->xdev->version_info.ip_type == QDMA_VERSAL_HARD_IP)
 			descq->channel = qconf->mm_channel;
 
@@ -1881,6 +1882,8 @@ int qdma_queue_packet_write(unsigned long dev_hndl, unsigned long id,
 		return -EINVAL;
 	}
 
+	memset(cb, 0, QDMA_REQ_OPAQUE_SIZE);
+	qdma_waitq_init(&cb->wq);
 	qdma_work_queue_add(descq, cb);
 
 	if (!req->dma_mapped) {
@@ -1958,7 +1961,9 @@ int qdma_descq_get_cmpt_udd(unsigned long dev_hndl, unsigned long id,
 	 */
 	for (i = 0; i < descq->cmpt_entry_len; i++) {
 		if (buf && buflen) {
-			if (xdev->version_info.ip_type == QDMA_VERSAL_HARD_IP) {
+			if ((xdev->version_info.ip_type == QDMA_VERSAL_HARD_IP)
+					&& xdev->version_info.device_type ==
+					QDMA_DEVICE_VERSAL_CPM4) {
 				if (i <= 1)
 					continue;
 				else if (i == 2)

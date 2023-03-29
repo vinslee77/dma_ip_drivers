@@ -1,8 +1,8 @@
 /*
  * This file is part of the Xilinx DMA IP Core driver for Linux
  *
- * Copyright (c) 2017-2020,  Xilinx, Inc.
- * All rights reserved.
+ * Copyright (c) 2017-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022, Advanced Micro Devices, Inc. All rights reserved.
  *
  * This source code is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -53,6 +53,11 @@
 #define QDMA_QBASE 0
 #endif
 #ifndef QDMA_TOTAL_Q
+/**
+ * CPM5 supports 4095 Qs & all other designs supports 2048 Qs.
+ * Though the number here is given as 2K Qs,
+ * actual qmax is extracted from dev cap.
+ */
 #define QDMA_TOTAL_Q 2048
 #endif
 #endif
@@ -91,12 +96,13 @@ struct qdma_resource_lock {
 static int pci_dma_mask_set(struct pci_dev *pdev)
 {
 	/** 64-bit addressing capability for XDMA? */
-	if (!pci_set_dma_mask(pdev, DMA_BIT_MASK(64))) {
+
+	if (!dma_set_mask(&pdev->dev, DMA_BIT_MASK(64))) {
 		/** use 64-bit DMA for descriptors */
-		pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64));
+		dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 		/** use 64-bit DMA, 32-bit for consistent */
-	} else if (!pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
-		pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));
+	} else if (!dma_set_mask(&pdev->dev, DMA_BIT_MASK(32))) {
+		dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
 		/** use 32-bit DMA */
 		dev_info(&pdev->dev, "Using a 32-bit DMA mask.\n");
 	} else {
@@ -202,16 +208,20 @@ static void xdev_reset_work(struct work_struct *work)
 		pci_release_regions(pdev);
 		pci_disable_device(pdev);
 
+#ifndef __XRT__
 		rv = pci_request_regions(pdev, "qdma-vf");
 		if (rv) {
 			pr_err("cannot obtain PCI resources\n");
 			return;
 		}
+#endif
 
 		rv = pci_enable_device(pdev);
 		if (rv) {
 			pr_err("cannot enable PCI device\n");
+#ifndef __XRT__
 			pci_release_regions(pdev);
+#endif
 			return;
 		}
 
@@ -236,7 +246,6 @@ static void xdev_reset_work(struct work_struct *work)
 		qdma_device_offline(pdev, (unsigned long)xdev,
 							XDEV_FLR_INACTIVE);
 	}
-
 }
 #endif
 
@@ -547,7 +556,9 @@ static int xdev_identify_bars(struct xlnx_dma_dev *xdev, struct pci_dev *pdev)
 		int rv = 0;
 
 		/* AXI Master Lite BAR IDENTIFICATION */
-		if (xdev->version_info.ip_type == QDMA_VERSAL_HARD_IP)
+		if ((xdev->version_info.ip_type == QDMA_VERSAL_HARD_IP) &&
+				(xdev->version_info.device_type ==
+				 QDMA_DEVICE_VERSAL_CPM4))
 			xdev->conf.bar_num_user = DEFAULT_USER_BAR;
 		else {
 #ifndef __QDMA_VF__
@@ -592,7 +603,7 @@ static int xdev_identify_bars(struct xlnx_dma_dev *xdev, struct pci_dev *pdev)
 
 /*****************************************************************************/
 /**
- * xdev_map_bars() - allocate the dma device
+ * xdev_alloc() - allocate the dma device
  *
  * @param[in]	conf:	qdma device configuration
  *
@@ -895,7 +906,7 @@ int qdma_device_online(struct pci_dev *pdev, unsigned long dev_hndl, int reset)
 		xdev->err_mon_cancel = 0;
 		INIT_DELAYED_WORK(&xdev->err_mon, qdma_err_mon);
 		schedule_delayed_work(&xdev->err_mon,
-				      msecs_to_jiffies(1000));
+					  msecs_to_jiffies(1000));
 	}
 
 	/**
@@ -995,12 +1006,14 @@ int qdma_device_open(const char *mod_name, struct qdma_dev_conf *conf,
 		return -EINVAL;
 	}
 
+#ifndef __XRT__
 	rv = pci_request_regions(pdev, mod_name);
 	if (rv) {
 		/* Just info, some other driver may have claimed the device. */
 		dev_info(&pdev->dev, "cannot obtain PCI resources\n");
 		return rv;
 	}
+#endif
 
 	rv = pci_enable_device(pdev);
 	if (rv) {
@@ -1067,6 +1080,7 @@ int qdma_device_open(const char *mod_name, struct qdma_dev_conf *conf,
 
 	/* get the device attributes */
 	qdma_device_attributes_get(xdev);
+	qmax = xdev->dev_cap.num_qs;
 	if (pdev->bus->parent)
 		rv = qdma_master_resource_create(pdev->bus->number,
 				pci_bus_max_busnr(pdev->bus->parent), qbase,
@@ -1131,7 +1145,8 @@ int qdma_device_open(const char *mod_name, struct qdma_dev_conf *conf,
 
 #ifdef __QDMA_VF__
 	if ((conf->qdma_drv_mode != POLL_MODE) &&
-		(xdev->version_info.ip_type == QDMA_VERSAL_HARD_IP)) {
+		(xdev->version_info.ip_type == QDMA_VERSAL_HARD_IP) &&
+		(xdev->version_info.device_type == QDMA_DEVICE_VERSAL_CPM4)) {
 		pr_warn("VF is not supported in %s mode\n",
 				mode_name_list[conf->qdma_drv_mode].name);
 		pr_info("Switching VF to poll mode\n");
@@ -1145,8 +1160,6 @@ int qdma_device_open(const char *mod_name, struct qdma_dev_conf *conf,
 		goto unmap_bars;
 	}
 
-	memcpy(conf, &xdev->conf, sizeof(*conf));
-
 	rv = qdma_device_online(pdev, (unsigned long)xdev, XDEV_FLR_INACTIVE);
 	if (rv < 0) {
 		pr_warn("Failed to set the dma device  online, err = %d", rv);
@@ -1158,6 +1171,8 @@ int qdma_device_open(const char *mod_name, struct qdma_dev_conf *conf,
 		pr_err("Failed to identify bars, err %d", rv);
 		goto unmap_bars;
 	}
+
+	memcpy(conf, &xdev->conf, sizeof(*conf));
 
 	pr_info("%s, %05x, pdev 0x%p, xdev 0x%p, ch %u, q %u, vf %u.\n",
 		dev_name(&pdev->dev), xdev->conf.bdf, pdev, xdev,
@@ -1186,7 +1201,9 @@ disable_device:
 	pci_disable_device(pdev);
 
 release_regions:
+#ifndef __XRT__
 	pci_release_regions(pdev);
+#endif
 
 	return rv;
 }
@@ -1236,7 +1253,9 @@ int qdma_device_close(struct pci_dev *pdev, unsigned long dev_hndl)
 
 	pci_disable_relaxed_ordering(pdev);
 	pci_disable_extended_tag(pdev);
+#ifndef __XRT__
 	pci_release_regions(pdev);
+#endif
 	pci_disable_device(pdev);
 
 	xdev_list_remove(xdev);

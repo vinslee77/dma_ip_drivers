@@ -1,7 +1,8 @@
 /*-
  * BSD LICENSE
  *
- * Copyright(c) 2017-2020 Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2017-2022 Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Advanced Micro Devices, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,12 +34,10 @@
 #include <stdint.h>
 #include <rte_malloc.h>
 #include <rte_common.h>
-#include <rte_ethdev_pci.h>
 #include <rte_cycles.h>
 #include <rte_kvargs.h>
 #include "qdma.h"
 #include "qdma_access_common.h"
-
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -74,7 +73,12 @@ uint32_t qdma_pci_read_reg(struct rte_eth_dev *dev, uint32_t bar, uint32_t reg)
 		printf("Error: PCI BAR number:%u not mapped\n", bar);
 		return -1;
 	}
+
+#ifdef TANDEM_BOOT_SUPPORTED
+	val = *((volatile uint64_t *)(baseaddr + reg));
+#else
 	val = *((volatile uint32_t *)(baseaddr + reg));
+#endif
 
 	return val;
 }
@@ -96,7 +100,12 @@ void qdma_pci_write_reg(struct rte_eth_dev *dev, uint32_t bar,
 		printf("Error: PCI BAR number:%u not mapped\n", bar);
 		return;
 	}
+
+#ifdef TANDEM_BOOT_SUPPORTED
+	*((volatile uint64_t *)(baseaddr + reg)) = val;
+#else
 	*((volatile uint32_t *)(baseaddr + reg)) = val;
+#endif
 }
 
 void qdma_reset_rx_queue(struct qdma_rx_queue *rxq)
@@ -442,18 +451,40 @@ static int h2c_byp_mode_check_handler(__rte_unused const char *key,
 
 	return 0;
 }
+#ifdef TANDEM_BOOT_SUPPORTED
+static int en_st_mode_check_handler(__rte_unused const char *key,
+					const char *value,  void *opaque)
+{
+	struct qdma_pci_dev *qdma_dev = (struct qdma_pci_dev *)opaque;
+	char *end = NULL;
 
+	PMD_DRV_LOG(INFO, "QDMA devargs en_st is: %s\n", value);
+	qdma_dev->en_st_mode =  (uint8_t)strtoul(value, &end, 10);
+
+	if (qdma_dev->en_st_mode > 1) {
+		PMD_DRV_LOG(INFO, "QDMA devargs incorrect"
+				" en_st_mode =%d specified\n",
+					qdma_dev->en_st_mode);
+		return -1;
+	}
+
+	return 0;
+}
+#endif
 /* Process the all devargs */
 int qdma_check_kvargs(struct rte_devargs *devargs,
 						struct qdma_pci_dev *qdma_dev)
 {
 	struct rte_kvargs *kvlist;
-	const char *pfetch_key = "desc_prefetch";
+	const char *pfetch_key        = "desc_prefetch";
 	const char *cmpt_desc_len_key = "cmpt_desc_len";
-	const char *trigger_mode_key = "trigger_mode";
-	const char *config_bar_key = "config_bar";
-	const char *c2h_byp_mode_key = "c2h_byp_mode";
-	const char *h2c_byp_mode_key = "h2c_byp_mode";
+	const char *trigger_mode_key  = "trigger_mode";
+	const char *config_bar_key    = "config_bar";
+	const char *c2h_byp_mode_key  = "c2h_byp_mode";
+	const char *h2c_byp_mode_key  = "h2c_byp_mode";
+#ifdef TANDEM_BOOT_SUPPORTED
+	const char *en_st_key         = "en_st";
+#endif
 	int ret = 0;
 
 	if (!devargs)
@@ -522,6 +553,18 @@ int qdma_check_kvargs(struct rte_devargs *devargs,
 			return ret;
 		}
 	}
+
+#ifdef TANDEM_BOOT_SUPPORTED
+	/* Enable ST */
+	if (rte_kvargs_count(kvlist, en_st_key)) {
+		ret = rte_kvargs_process(kvlist, en_st_key,
+					  en_st_mode_check_handler, qdma_dev);
+		if (ret) {
+			rte_kvargs_free(kvlist);
+			return ret;
+		}
+	}
+#endif
 
 	rte_kvargs_free(kvlist);
 	return ret;

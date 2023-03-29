@@ -1,8 +1,8 @@
 /*
  * This file is part of the Xilinx DMA IP Core driver for Linux
  *
- * Copyright (c) 2017-2020,  Xilinx, Inc.
- * All rights reserved.
+ * Copyright (c) 2017-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022, Advanced Micro Devices, Inc. All rights reserved.
  *
  * This source code is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -90,9 +90,11 @@ static int make_sw_context(struct qdma_descq *descq,
 			(descq->conf.sw_desc_sz == DESC_SZ_64B)) {
 		sw_ctxt->desc_sz = descq->conf.sw_desc_sz;
 	} else {
+		sw_ctxt->fetch_max = FETCH_MAX_NUM;
 		if (!descq->conf.st) { /* mm h2c/c2h */
 			sw_ctxt->desc_sz = DESC_SZ_32B;
 			sw_ctxt->mm_chn = descq->channel;
+			sw_ctxt->host_id = descq->channel;
 		} else if (descq->conf.q_type == Q_C2H) {  /* st c2h */
 			sw_ctxt->frcd_en = descq->conf.fetch_credit;
 			sw_ctxt->desc_sz = DESC_SZ_8B;
@@ -787,6 +789,13 @@ int qdma_descq_context_read(struct xlnx_dma_dev *xdev, unsigned int qid_hw,
 			return xdev->hw.qdma_get_error_code(rv);
 		}
 
+		rv = xdev->hw.qdma_fmap_conf(xdev, xdev->func_id,
+				&(context->fmap), QDMA_HW_ACCESS_READ);
+		if (rv < 0) {
+			pr_err("Failed to read fmap context, rv = %d", rv);
+			return xdev->hw.qdma_get_error_code(rv);
+		}
+
 		if (st && type) {
 			rv = xdev->hw.qdma_pfetch_ctx_conf(xdev, qid_hw,
 						 &(context->pfetch_ctxt),
@@ -892,6 +901,7 @@ int qdma_descq_context_dump(struct qdma_descq *descq, char *buf, int buflen)
 	struct qdma_indirect_intr_ctxt intr_ctxt;
 
 	rv = descq->xdev->hw.qdma_read_dump_queue_context(descq->xdev,
+				descq->xdev->func_id,
 				descq->qidx_hw,
 				descq->conf.st, descq->conf.q_type,
 				buf, buflen);

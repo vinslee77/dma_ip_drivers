@@ -1,17 +1,6 @@
 /*
- * Copyright(c) 2019-2020 Xilinx, Inc. All rights reserved.
- *
- * This source code is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * The full GNU General Public License is included in this distribution in
- * the file called "COPYING".
+ * Copyright (c) 2019-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022, Advanced Micro Devices, Inc. All rights reserved.
  *
  * This source code is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -26,11 +15,11 @@
  * the file called "COPYING".
  */
 
-#include "qdma_s80_hard_reg.h"
+#include "qdma_cpm4_reg.h"
 #include "qdma_reg_dump.h"
 
 #ifdef ENABLE_WPP_TRACING
-#include "qdma_s80_hard_reg_dump.tmh"
+#include "qdma_cpm4_reg_dump.tmh"
 #endif
 
 
@@ -5211,7 +5200,7 @@ static struct regfield_info
 		FUNC_INTERRUPT_CTL_REG_INT_EN_MASK},
 };
 
-static struct xreg_info qdma_s80_hard_config_regs[] = {
+static struct xreg_info qdma_cpm4_config_regs[] = {
 {"CFG_BLK_IDENTIFIER", 0x00,
 	1, 0, 0, 0,
 	0, QDMA_MM_ST_MODE, QDMA_REG_READ_PF_ONLY,
@@ -8011,14 +8000,14 @@ static struct xreg_info qdma_s80_hard_config_regs[] = {
 
 };
 
-uint32_t qdma_s80_hard_config_num_regs_get(void)
+uint32_t qdma_cpm4_config_num_regs_get(void)
 {
-	return (sizeof(qdma_s80_hard_config_regs)/
-		sizeof(qdma_s80_hard_config_regs[0]));
+	return (sizeof(qdma_cpm4_config_regs)/
+		sizeof(qdma_cpm4_config_regs[0]));
 }
 
-struct xreg_info *qdma_s80_hard_config_regs_get(void)
+struct xreg_info *qdma_cpm4_config_regs_get(void)
 {
-	return qdma_s80_hard_config_regs;
+	return qdma_cpm4_config_regs;
 }
 

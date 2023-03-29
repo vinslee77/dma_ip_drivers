@@ -1,8 +1,8 @@
 /*
  * This file is part of the Xilinx DMA IP Core driver for Linux
  *
- * Copyright (c) 2017-2020,  Xilinx, Inc.
- * All rights reserved.
+ * Copyright (c) 2017-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Advanced Micro Devices, Inc. All rights reserved.
  *
  * This source code is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -33,8 +33,8 @@
 
 /** QDMA character device class name */
 #define QDMA_CDEV_CLASS_NAME  DRV_MODULE_NAME
-/** QDMA character device max minor number*/
-#define QDMA_MINOR_MAX (2048)
+/** QDMA character device max minor number to support 4k queues */
+#define QDMA_MINOR_MAX (4096)
 
 /* per pci device control */
 /**

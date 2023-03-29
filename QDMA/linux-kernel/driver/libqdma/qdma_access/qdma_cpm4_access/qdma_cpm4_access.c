@@ -1,5 +1,6 @@
 /*
- * Copyright(c) 2019-2020 Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2019-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022, Advanced Micro Devices, Inc. All rights reserved.
  *
  * This source code is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -14,1058 +15,1060 @@
  * the file called "COPYING".
  */
 
-#include "qdma_s80_hard_access.h"
-#include "qdma_s80_hard_reg.h"
+#include "qdma_cpm4_access.h"
+#include "qdma_cpm4_reg.h"
 #include "qdma_reg_dump.h"
 
 #ifdef ENABLE_WPP_TRACING
-#include "qdma_s80_hard_access.tmh"
+#include "qdma_cpm4_access.tmh"
 #endif
 
-/** QDMA S80 Hard Context array size */
-#define QDMA_S80_HARD_SW_CONTEXT_NUM_WORDS              4
-#define QDMA_S80_HARD_CMPT_CONTEXT_NUM_WORDS            4
-#define QDMA_S80_HARD_QID2VEC_CONTEXT_NUM_WORDS         1
-#define QDMA_S80_HARD_HW_CONTEXT_NUM_WORDS              2
-#define QDMA_S80_HARD_CR_CONTEXT_NUM_WORDS              1
-#define QDMA_S80_HARD_IND_INTR_CONTEXT_NUM_WORDS        3
-#define QDMA_S80_HARD_PFETCH_CONTEXT_NUM_WORDS          2
+/** QDMA CPM4 Hard Context array size */
+#define QDMA_CPM4_SW_CONTEXT_NUM_WORDS              4
+#define QDMA_CPM4_CMPT_CONTEXT_NUM_WORDS            4
+#define QDMA_CPM4_QID2VEC_CONTEXT_NUM_WORDS         1
+#define QDMA_CPM4_HW_CONTEXT_NUM_WORDS              2
+#define QDMA_CPM4_CR_CONTEXT_NUM_WORDS              1
+#define QDMA_CPM4_IND_INTR_CONTEXT_NUM_WORDS        3
+#define QDMA_CPM4_PFETCH_CONTEXT_NUM_WORDS          2
 
-#define QDMA_S80_HARD_VF_USER_BAR_ID   2
+#define QDMA_CPM4_VF_USER_BAR_ID   2
 
-#define QDMA_S80_REG_GROUP_1_START_ADDR	0x000
-#define QDMA_S80_REG_GROUP_2_START_ADDR	0x400
-#define QDMA_S80_REG_GROUP_3_START_ADDR	0xB00
-#define QDMA_S80_REG_GROUP_4_START_ADDR	0x1014
+#define QDMA_CPM4_REG_GROUP_1_START_ADDR	0x000
+#define QDMA_CPM4_REG_GROUP_2_START_ADDR	0x400
+#define QDMA_CPM4_REG_GROUP_3_START_ADDR	0xB00
+#define QDMA_CPM4_REG_GROUP_4_START_ADDR	0x1014
 
-#define QDMA_S80_HARD_REG_TRQ_SEL_FMAP_STEP	4
+#define QDMA_CPM4_REG_TRQ_SEL_FMAP_STEP	4
 
-#define QDMA_S80_HARD_IND_CTXT_DATA_NUM_REGS	4
+#define QDMA_CPM4_IND_CTXT_DATA_NUM_REGS	4
 
-#define QDMA_S80_HARD_TOTAL_LEAF_ERROR_AGGREGATORS	7
-#define QDMA_S80_HARD_GLBL_TRQ_ERR_ALL_MASK			0XB3
-#define QDMA_S80_HARD_GLBL_DSC_ERR_ALL_MASK			0X1F9037E
-#define QDMA_S80_HARD_C2H_ERR_ALL_MASK				0X3F6DF
-#define QDMA_S80_HARD_C2H_FATAL_ERR_ALL_MASK			0X1FDF1B
-#define QDMA_S80_HARD_H2C_ERR_ALL_MASK				0X3F
-#define QDMA_S80_HARD_SBE_ERR_ALL_MASK				0XFFFFFFFF
-#define QDMA_S80_HARD_DBE_ERR_ALL_MASK				0XFFFFFFFF
+#define QDMA_CPM4_TOTAL_LEAF_ERROR_AGGREGATORS	7
+#define QDMA_CPM4_GLBL_TRQ_ERR_ALL_MASK			0XB3
+#define QDMA_CPM4_GLBL_DSC_ERR_ALL_MASK			0X1F9037E
+#define QDMA_CPM4_C2H_ERR_ALL_MASK				0X3F6DF
+#define QDMA_CPM4_C2H_FATAL_ERR_ALL_MASK			0X1FDF1B
+#define QDMA_CPM4_H2C_ERR_ALL_MASK				0X3F
+#define QDMA_CPM4_SBE_ERR_ALL_MASK				0XFFFFFFFF
+#define QDMA_CPM4_DBE_ERR_ALL_MASK				0XFFFFFFFF
 
-#define QDMA_S80_HARD_OFFSET_DMAP_SEL_INT_CIDX                  0x6400
-#define QDMA_S80_HARD_OFFSET_DMAP_SEL_H2C_DSC_PIDX          0x6404
-#define QDMA_S80_HARD_OFFSET_DMAP_SEL_C2H_DSC_PIDX          0x6408
-#define QDMA_S80_HARD_OFFSET_DMAP_SEL_CMPT_CIDX               0x640C
+#define QDMA_CPM4_OFFSET_DMAP_SEL_INT_CIDX                  0x6400
+#define QDMA_CPM4_OFFSET_DMAP_SEL_H2C_DSC_PIDX          0x6404
+#define QDMA_CPM4_OFFSET_DMAP_SEL_C2H_DSC_PIDX          0x6408
+#define QDMA_CPM4_OFFSET_DMAP_SEL_CMPT_CIDX               0x640C
 
-#define QDMA_S80_HARD_OFFSET_VF_DMAP_SEL_INT_CIDX             0x3000
-#define QDMA_S80_HARD_OFFSET_VF_DMAP_SEL_H2C_DSC_PIDX     0x3004
-#define QDMA_S80_HARD_OFFSET_VF_DMAP_SEL_C2H_DSC_PIDX     0x3008
-#define QDMA_S80_HARD_OFFSET_VF_DMAP_SEL_CMPT_CIDX          0x300C
+#define QDMA_CPM4_OFFSET_VF_DMAP_SEL_INT_CIDX             0x3000
+#define QDMA_CPM4_OFFSET_VF_DMAP_SEL_H2C_DSC_PIDX     0x3004
+#define QDMA_CPM4_OFFSET_VF_DMAP_SEL_C2H_DSC_PIDX     0x3008
+#define QDMA_CPM4_OFFSET_VF_DMAP_SEL_CMPT_CIDX          0x300C
 
-#define QDMA_S80_HARD_DMA_SEL_INT_SW_CIDX_MASK               GENMASK(15, 0)
-#define QDMA_S80_HARD_DMA_SEL_INT_RING_IDX_MASK              GENMASK(23, 16)
-#define QDMA_S80_HARD_DMA_SEL_DESC_PIDX_MASK                   GENMASK(15, 0)
-#define QDMA_S80_HARD_DMA_SEL_IRQ_EN_MASK                        BIT(16)
-#define QDMA_S80_HARD_DMAP_SEL_CMPT_IRQ_EN_MASK             BIT(28)
-#define QDMA_S80_HARD_DMAP_SEL_CMPT_STS_DESC_EN_MASK    BIT(27)
-#define QDMA_S80_HARD_DMAP_SEL_CMPT_TRG_MODE_MASK        GENMASK(26, 24)
-#define QDMA_S80_HARD_DMAP_SEL_CMPT_TMR_CNT_MASK          GENMASK(23, 20)
-#define QDMA_S80_HARD_DMAP_SEL_CMPT_CNT_THRESH_MASK     GENMASK(19, 16)
-#define QDMA_S80_HARD_DMAP_SEL_CMPT_WRB_CIDX_MASK        GENMASK(15, 0)
-#define QDMA_S80_HARD_INTR_CTXT_BADDR_GET_H_MASK     GENMASK_ULL(63, 35)
-#define QDMA_S80_HARD_INTR_CTXT_BADDR_GET_L_MASK     GENMASK_ULL(34, 12)
-#define QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_H_MASK    GENMASK_ULL(63, 42)
-#define QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_M_MASK    GENMASK_ULL(41, 10)
-#define QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_L_MASK    GENMASK_ULL(9, 6)
-#define QDMA_S80_HARD_COMPL_CTXT_PIDX_GET_H_MASK     GENMASK(15, 8)
-#define QDMA_S80_HARD_COMPL_CTXT_PIDX_GET_L_MASK     GENMASK(7, 0)
-#define QDMA_S80_HARD_QID2VEC_H2C_VECTOR             GENMASK(16, 9)
-#define QDMA_S80_HARD_QID2VEC_H2C_COAL_EN            BIT(17)
+#define QDMA_CPM4_DMA_SEL_INT_SW_CIDX_MASK               GENMASK(15, 0)
+#define QDMA_CPM4_DMA_SEL_INT_RING_IDX_MASK              GENMASK(23, 16)
+#define QDMA_CPM4_DMA_SEL_DESC_PIDX_MASK                   GENMASK(15, 0)
+#define QDMA_CPM4_DMA_SEL_IRQ_EN_MASK                        BIT(16)
+#define QDMA_CPM4_DMAP_SEL_CMPT_IRQ_EN_MASK             BIT(28)
+#define QDMA_CPM4_DMAP_SEL_CMPT_STS_DESC_EN_MASK    BIT(27)
+#define QDMA_CPM4_DMAP_SEL_CMPT_TRG_MODE_MASK        GENMASK(26, 24)
+#define QDMA_CPM4_DMAP_SEL_CMPT_TMR_CNT_MASK          GENMASK(23, 20)
+#define QDMA_CPM4_DMAP_SEL_CMPT_CNT_THRESH_MASK     GENMASK(19, 16)
+#define QDMA_CPM4_DMAP_SEL_CMPT_WRB_CIDX_MASK        GENMASK(15, 0)
+#define QDMA_CPM4_INTR_CTXT_BADDR_GET_H_MASK     GENMASK_ULL(63, 35)
+#define QDMA_CPM4_INTR_CTXT_BADDR_GET_L_MASK     GENMASK_ULL(34, 12)
+#define QDMA_CPM4_COMPL_CTXT_BADDR_GET_H_MASK    GENMASK_ULL(63, 42)
+#define QDMA_CPM4_COMPL_CTXT_BADDR_GET_M_MASK    GENMASK_ULL(41, 10)
+#define QDMA_CPM4_COMPL_CTXT_BADDR_GET_L_MASK    GENMASK_ULL(9, 6)
+#define QDMA_CPM4_COMPL_CTXT_PIDX_GET_H_MASK     GENMASK(15, 8)
+#define QDMA_CPM4_COMPL_CTXT_PIDX_GET_L_MASK     GENMASK(7, 0)
+#define QDMA_CPM4_QID2VEC_H2C_VECTOR             GENMASK(16, 9)
+#define QDMA_CPM4_QID2VEC_H2C_COAL_EN            BIT(17)
 
-static void qdma_s80_hard_hw_st_h2c_err_process(void *dev_hndl);
-static void qdma_s80_hard_hw_st_c2h_err_process(void *dev_hndl);
-static void qdma_s80_hard_hw_desc_err_process(void *dev_hndl);
-static void qdma_s80_hard_hw_trq_err_process(void *dev_hndl);
-static void qdma_s80_hard_hw_ram_sbe_err_process(void *dev_hndl);
-static void qdma_s80_hard_hw_ram_dbe_err_process(void *dev_hndl);
+#define QDMA_CPM4_DEFAULT_PFCH_STOP_THRESH            256
 
-static struct qdma_s80_hard_hw_err_info
-		qdma_s80_hard_err_info[QDMA_S80_HARD_ERRS_ALL] = {
+static void qdma_cpm4_hw_st_h2c_err_process(void *dev_hndl);
+static void qdma_cpm4_hw_st_c2h_err_process(void *dev_hndl);
+static void qdma_cpm4_hw_desc_err_process(void *dev_hndl);
+static void qdma_cpm4_hw_trq_err_process(void *dev_hndl);
+static void qdma_cpm4_hw_ram_sbe_err_process(void *dev_hndl);
+static void qdma_cpm4_hw_ram_dbe_err_process(void *dev_hndl);
+
+static struct qdma_cpm4_hw_err_info
+		qdma_cpm4_err_info[QDMA_CPM4_ERRS_ALL] = {
 	/* Descriptor errors */
 	{
-		QDMA_S80_HARD_DSC_ERR_POISON,
+		QDMA_CPM4_DSC_ERR_POISON,
 		"Poison error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_POISON_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_UR_CA,
+		QDMA_CPM4_DSC_ERR_UR_CA,
 		"Unsupported request or completer aborted error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_UR_CA_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_PARAM,
+		QDMA_CPM4_DSC_ERR_PARAM,
 		"Parameter mismatch error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_PARAM_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_ADDR,
+		QDMA_CPM4_DSC_ERR_ADDR,
 		"Address mismatch error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_ADDR_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_TAG,
+		QDMA_CPM4_DSC_ERR_TAG,
 		"Unexpected tag error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_TAG_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_FLR,
+		QDMA_CPM4_DSC_ERR_FLR,
 		"FLR error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_FLR_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_TIMEOUT,
+		QDMA_CPM4_DSC_ERR_TIMEOUT,
 		"Timed out error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_TIMEOUT_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_DAT_POISON,
+		QDMA_CPM4_DSC_ERR_DAT_POISON,
 		"Poison data error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_DAT_POISON_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_FLR_CANCEL,
+		QDMA_CPM4_DSC_ERR_FLR_CANCEL,
 		"Descriptor fetch cancelled due to FLR error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_FLR_CANCEL_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_DMA,
+		QDMA_CPM4_DSC_ERR_DMA,
 		"DMA engine error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_DMA_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_DSC,
+		QDMA_CPM4_DSC_ERR_DSC,
 		"Invalid PIDX update error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_DSC_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_RQ_CANCEL,
+		QDMA_CPM4_DSC_ERR_RQ_CANCEL,
 		"Descriptor fetch cancelled due to disable register status error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_RQ_CANCEL_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_DBE,
+		QDMA_CPM4_DSC_ERR_DBE,
 		"UNC_ERR_RAM_DBE error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_DBE_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_SBE,
+		QDMA_CPM4_DSC_ERR_SBE,
 		"UNC_ERR_RAM_SBE error",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
 		GLBL_DSC_ERR_STS_SBE_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 	{
-		QDMA_S80_HARD_DSC_ERR_ALL,
+		QDMA_CPM4_DSC_ERR_ALL,
 		"All Descriptor errors",
-		QDMA_S80_HARD_GLBL_DSC_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
-		QDMA_S80_HARD_DBE_ERR_ALL_MASK,
+		QDMA_CPM4_GLBL_DSC_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_DBE_ERR_ALL_MASK,
 		GLBL_ERR_STAT_ERR_DSC_MASK,
-		&qdma_s80_hard_hw_desc_err_process
+		&qdma_cpm4_hw_desc_err_process
 	},
 
 	/* TRQ errors */
 	{
-		QDMA_S80_HARD_TRQ_ERR_UNMAPPED,
+		QDMA_CPM4_TRQ_ERR_UNMAPPED,
 		"Access targeted unmapped register space via CSR pathway error",
-		QDMA_S80_HARD_GLBL_TRQ_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_TRQ_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_STS_ADDR,
 		GLBL_TRQ_ERR_STS_UNMAPPED_MASK,
 		GLBL_ERR_STAT_ERR_TRQ_MASK,
-		&qdma_s80_hard_hw_trq_err_process
+		&qdma_cpm4_hw_trq_err_process
 	},
 	{
-		QDMA_S80_HARD_TRQ_ERR_QID_RANGE,
+		QDMA_CPM4_TRQ_ERR_QID_RANGE,
 		"Qid range error",
-		QDMA_S80_HARD_GLBL_TRQ_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_TRQ_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_STS_ADDR,
 		GLBL_TRQ_ERR_STS_QID_RANGE_MASK,
 		GLBL_ERR_STAT_ERR_TRQ_MASK,
-		&qdma_s80_hard_hw_trq_err_process
+		&qdma_cpm4_hw_trq_err_process
 	},
 	{
-		QDMA_S80_HARD_TRQ_ERR_VF_ACCESS_ERR,
+		QDMA_CPM4_TRQ_ERR_VF_ACCESS_ERR,
 		"VF attempted to access Global register space or Function map",
-		QDMA_S80_HARD_GLBL_TRQ_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_TRQ_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_STS_ADDR,
 		GLBL_TRQ_ERR_STS_VF_ACCESS_ERR_MASK,
 		GLBL_ERR_STAT_ERR_TRQ_MASK,
-		&qdma_s80_hard_hw_trq_err_process
+		&qdma_cpm4_hw_trq_err_process
 	},
 	{
-		QDMA_S80_HARD_TRQ_ERR_TCP_TIMEOUT,
+		QDMA_CPM4_TRQ_ERR_TCP_TIMEOUT,
 		"Timeout on request to dma internal csr register",
-		QDMA_S80_HARD_GLBL_TRQ_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_TRQ_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_STS_ADDR,
 		GLBL_TRQ_ERR_STS_TCP_TIMEOUT_MASK,
 		GLBL_ERR_STAT_ERR_TRQ_MASK,
-		&qdma_s80_hard_hw_trq_err_process
+		&qdma_cpm4_hw_trq_err_process
 	},
 	{
-		QDMA_S80_HARD_TRQ_ERR_ALL,
+		QDMA_CPM4_TRQ_ERR_ALL,
 		"All TRQ errors",
-		QDMA_S80_HARD_GLBL_TRQ_ERR_MSK_ADDR,
-		QDMA_S80_HARD_GLBL_TRQ_ERR_STS_ADDR,
-		QDMA_S80_HARD_GLBL_TRQ_ERR_ALL_MASK,
+		QDMA_CPM4_GLBL_TRQ_ERR_MSK_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_ALL_MASK,
 		GLBL_ERR_STAT_ERR_TRQ_MASK,
-		&qdma_s80_hard_hw_trq_err_process
+		&qdma_cpm4_hw_trq_err_process
 	},
 
 	/* C2H Errors*/
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_MTY_MISMATCH,
+		QDMA_CPM4_ST_C2H_ERR_MTY_MISMATCH,
 		"MTY mismatch error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_MTY_MISMATCH_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_LEN_MISMATCH,
+		QDMA_CPM4_ST_C2H_ERR_LEN_MISMATCH,
 		"Packet length mismatch error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_LEN_MISMATCH_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_QID_MISMATCH,
+		QDMA_CPM4_ST_C2H_ERR_QID_MISMATCH,
 		"Qid mismatch error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_QID_MISMATCH_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_DESC_RSP_ERR,
+		QDMA_CPM4_ST_C2H_ERR_DESC_RSP_ERR,
 		"Descriptor error bit set",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_DESC_RSP_ERR_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_ENG_WPL_DATA_PAR_ERR,
+		QDMA_CPM4_ST_C2H_ERR_ENG_WPL_DATA_PAR_ERR,
 		"Data parity error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_ENG_WPL_DATA_PAR_ERR_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_MSI_INT_FAIL,
+		QDMA_CPM4_ST_C2H_ERR_MSI_INT_FAIL,
 		"MSI got a fail response error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_MSI_INT_FAIL_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_ERR_DESC_CNT,
+		QDMA_CPM4_ST_C2H_ERR_ERR_DESC_CNT,
 		"Descriptor count error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_ERR_DESC_CNT_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_PORTID_CTXT_MISMATCH,
+		QDMA_CPM4_ST_C2H_ERR_PORTID_CTXT_MISMATCH,
 		"Port id in packet and pfetch ctxt mismatch error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_PORT_ID_CTXT_MISMATCH_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_PORTID_BYP_IN_MISMATCH,
+		QDMA_CPM4_ST_C2H_ERR_PORTID_BYP_IN_MISMATCH,
 		"Port id in packet and bypass in mismatch error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_PORT_ID_CTXT_MISMATCH_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_WRB_INV_Q_ERR,
+		QDMA_CPM4_ST_C2H_ERR_WRB_INV_Q_ERR,
 		"Writeback on invalid queue error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_WRB_INV_Q_ERR_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_WRB_QFULL_ERR,
+		QDMA_CPM4_ST_C2H_ERR_WRB_QFULL_ERR,
 		"Completion queue gets full error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_WRB_QFULL_ERR_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_WRB_CIDX_ERR,
+		QDMA_CPM4_ST_C2H_ERR_WRB_CIDX_ERR,
 		"Bad CIDX update by the software error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_WRB_CIDX_ERR_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_WRB_PRTY_ERR,
+		QDMA_CPM4_ST_C2H_ERR_WRB_PRTY_ERR,
 		"C2H completion Parity error",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
 		C2H_ERR_STAT_WRB_PRTY_ERR_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_C2H_ERR_ALL,
+		QDMA_CPM4_ST_C2H_ERR_ALL,
 		"All C2h errors",
-		QDMA_S80_HARD_C2H_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
-		QDMA_S80_HARD_C2H_ERR_ALL_MASK,
+		QDMA_CPM4_C2H_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_ERR_ALL_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 
 	/* C2H fatal errors */
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_MTY_MISMATCH,
+		QDMA_CPM4_ST_FATAL_ERR_MTY_MISMATCH,
 		"Fatal MTY mismatch error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_MTY_MISMATCH_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_LEN_MISMATCH,
+		QDMA_CPM4_ST_FATAL_ERR_LEN_MISMATCH,
 		"Fatal Len mismatch error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_LEN_MISMATCH_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_QID_MISMATCH,
+		QDMA_CPM4_ST_FATAL_ERR_QID_MISMATCH,
 		"Fatal Qid mismatch error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_QID_MISMATCH_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_TIMER_FIFO_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_TIMER_FIFO_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_TIMER_FIFO_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_PFCH_II_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_PFCH_II_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_PFCH_LL_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_WRB_CTXT_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_WRB_CTXT_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_WRB_CTXT_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_PFCH_CTXT_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_PFCH_CTXT_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_PFCH_CTXT_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_DESC_REQ_FIFO_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_DESC_REQ_FIFO_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_DESC_REQ_FIFO_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_INT_CTXT_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_INT_CTXT_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_INT_CTXT_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_INT_QID2VEC_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_INT_QID2VEC_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_INT_QID2VEC_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_WRB_COAL_DATA_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_WRB_COAL_DATA_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_WRB_COAL_DATA_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_TUSER_FIFO_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_TUSER_FIFO_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_TUSER_FIFO_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_QID_FIFO_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_QID_FIFO_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_QID_FIFO_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_PAYLOAD_FIFO_RAM_RDBE,
+		QDMA_CPM4_ST_FATAL_ERR_PAYLOAD_FIFO_RAM_RDBE,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_PLD_FIFO_RAM_RDBE_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_WPL_DATA_PAR_ERR,
+		QDMA_CPM4_ST_FATAL_ERR_WPL_DATA_PAR_ERR,
 		"RAM double bit fatal error",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
 		C2H_FATAL_ERR_STAT_WPL_DATA_PAR_ERR_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_FATAL_ERR_ALL,
+		QDMA_CPM4_ST_FATAL_ERR_ALL,
 		"All fatal errors",
-		QDMA_S80_HARD_C2H_FATAL_ERR_MASK_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_ALL_MASK,
+		QDMA_CPM4_C2H_FATAL_ERR_MASK_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_ALL_MASK,
 		GLBL_ERR_STAT_ERR_C2H_ST_MASK,
-		&qdma_s80_hard_hw_st_c2h_err_process
+		&qdma_cpm4_hw_st_c2h_err_process
 	},
 
 	/* H2C St errors */
 	{
-		QDMA_S80_HARD_ST_H2C_ERR_ZERO_LEN_DESC_ERR,
+		QDMA_CPM4_ST_H2C_ERR_ZERO_LEN_DESC_ERR,
 		"Zero length descriptor error",
-		QDMA_S80_HARD_H2C_ERR_MASK_ADDR,
-		QDMA_S80_HARD_H2C_ERR_STAT_ADDR,
+		QDMA_CPM4_H2C_ERR_MASK_ADDR,
+		QDMA_CPM4_H2C_ERR_STAT_ADDR,
 		H2C_ERR_STAT_ZERO_LEN_DS_MASK,
 		GLBL_ERR_STAT_ERR_H2C_ST_MASK,
-		&qdma_s80_hard_hw_st_h2c_err_process
+		&qdma_cpm4_hw_st_h2c_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_H2C_ERR_SDI_MRKR_REQ_MOP_ERR,
+		QDMA_CPM4_ST_H2C_ERR_SDI_MRKR_REQ_MOP_ERR,
 		"A non-EOP descriptor received",
-		QDMA_S80_HARD_H2C_ERR_MASK_ADDR,
-		QDMA_S80_HARD_H2C_ERR_STAT_ADDR,
+		QDMA_CPM4_H2C_ERR_MASK_ADDR,
+		QDMA_CPM4_H2C_ERR_STAT_ADDR,
 		H2C_ERR_STAT_SDI_MRKR_REQ_MOP_ERR_MASK,
 		GLBL_ERR_STAT_ERR_H2C_ST_MASK,
-		&qdma_s80_hard_hw_st_h2c_err_process
+		&qdma_cpm4_hw_st_h2c_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_H2C_ERR_NO_DMA_DSC,
+		QDMA_CPM4_ST_H2C_ERR_NO_DMA_DSC,
 		"No DMA descriptor received error",
-		QDMA_S80_HARD_H2C_ERR_MASK_ADDR,
-		QDMA_S80_HARD_H2C_ERR_STAT_ADDR,
+		QDMA_CPM4_H2C_ERR_MASK_ADDR,
+		QDMA_CPM4_H2C_ERR_STAT_ADDR,
 		H2C_ERR_STAT_NO_DMA_DS_MASK,
 		GLBL_ERR_STAT_ERR_H2C_ST_MASK,
-		&qdma_s80_hard_hw_st_h2c_err_process
+		&qdma_cpm4_hw_st_h2c_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_H2C_ERR_DBE,
+		QDMA_CPM4_ST_H2C_ERR_DBE,
 		"Double bit error detected on H2C-ST data error",
-		QDMA_S80_HARD_H2C_ERR_MASK_ADDR,
-		QDMA_S80_HARD_H2C_ERR_STAT_ADDR,
+		QDMA_CPM4_H2C_ERR_MASK_ADDR,
+		QDMA_CPM4_H2C_ERR_STAT_ADDR,
 		H2C_ERR_STAT_DBE_MASK,
 		GLBL_ERR_STAT_ERR_H2C_ST_MASK,
-		&qdma_s80_hard_hw_st_h2c_err_process
+		&qdma_cpm4_hw_st_h2c_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_H2C_ERR_SBE,
+		QDMA_CPM4_ST_H2C_ERR_SBE,
 		"Single bit error detected on H2C-ST data error",
-		QDMA_S80_HARD_H2C_ERR_MASK_ADDR,
-		QDMA_S80_HARD_H2C_ERR_STAT_ADDR,
+		QDMA_CPM4_H2C_ERR_MASK_ADDR,
+		QDMA_CPM4_H2C_ERR_STAT_ADDR,
 		H2C_ERR_STAT_SBE_MASK,
 		GLBL_ERR_STAT_ERR_H2C_ST_MASK,
-		&qdma_s80_hard_hw_st_h2c_err_process
+		&qdma_cpm4_hw_st_h2c_err_process
 	},
 	{
-		QDMA_S80_HARD_ST_H2C_ERR_ALL,
+		QDMA_CPM4_ST_H2C_ERR_ALL,
 		"All H2C errors",
-		QDMA_S80_HARD_H2C_ERR_MASK_ADDR,
-		QDMA_S80_HARD_H2C_ERR_STAT_ADDR,
-		QDMA_S80_HARD_H2C_ERR_ALL_MASK,
+		QDMA_CPM4_H2C_ERR_MASK_ADDR,
+		QDMA_CPM4_H2C_ERR_STAT_ADDR,
+		QDMA_CPM4_H2C_ERR_ALL_MASK,
 		GLBL_ERR_STAT_ERR_H2C_ST_MASK,
-		&qdma_s80_hard_hw_st_h2c_err_process
+		&qdma_cpm4_hw_st_h2c_err_process
 	},
 
 	/* SBE errors */
 	{
-		QDMA_S80_HARD_SBE_ERR_MI_H2C0_DAT,
+		QDMA_CPM4_SBE_ERR_MI_H2C0_DAT,
 		"H2C MM data buffer single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_MI_H2C0_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_MI_C2H0_DAT,
+		QDMA_CPM4_SBE_ERR_MI_C2H0_DAT,
 		"C2H MM data buffer single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_MI_C2H0_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_H2C_RD_BRG_DAT,
+		QDMA_CPM4_SBE_ERR_H2C_RD_BRG_DAT,
 		"Bridge master read single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_H2C_RD_BRG_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_H2C_WR_BRG_DAT,
+		QDMA_CPM4_SBE_ERR_H2C_WR_BRG_DAT,
 		"Bridge master write single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_H2C_WR_BRG_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_C2H_RD_BRG_DAT,
+		QDMA_CPM4_SBE_ERR_C2H_RD_BRG_DAT,
 		"Bridge slave read data buffer single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_C2H_RD_BRG_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_C2H_WR_BRG_DAT,
+		QDMA_CPM4_SBE_ERR_C2H_WR_BRG_DAT,
 		"Bridge slave write data buffer single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_C2H_WR_BRG_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_FUNC_MAP,
+		QDMA_CPM4_SBE_ERR_FUNC_MAP,
 		"Function map RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_FUNC_MAP_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_DSC_HW_CTXT,
+		QDMA_CPM4_SBE_ERR_DSC_HW_CTXT,
 		"Descriptor engine hardware context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_DSC_HW_CTXT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_DSC_CRD_RCV,
+		QDMA_CPM4_SBE_ERR_DSC_CRD_RCV,
 		"Descriptor engine receive credit context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_DSC_CRD_RCV_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_DSC_SW_CTXT,
+		QDMA_CPM4_SBE_ERR_DSC_SW_CTXT,
 		"Descriptor engine software context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_DSC_SW_CTXT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_DSC_CPLI,
+		QDMA_CPM4_SBE_ERR_DSC_CPLI,
 		"Descriptor engine fetch completion information RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_DSC_CPLI_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_DSC_CPLD,
+		QDMA_CPM4_SBE_ERR_DSC_CPLD,
 		"Descriptor engine fetch completion data RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_DSC_CPLD_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_PASID_CTXT_RAM,
+		QDMA_CPM4_SBE_ERR_PASID_CTXT_RAM,
 		"Pasid ctxt FIFO RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_PASID_CTXT_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_TIMER_FIFO_RAM,
+		QDMA_CPM4_SBE_ERR_TIMER_FIFO_RAM,
 		"Timer fifo RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_TIMER_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_PAYLOAD_FIFO_RAM,
+		QDMA_CPM4_SBE_ERR_PAYLOAD_FIFO_RAM,
 		"C2H ST payload FIFO RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_PLD_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_QID_FIFO_RAM,
+		QDMA_CPM4_SBE_ERR_QID_FIFO_RAM,
 		"C2H ST QID FIFO RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_QID_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_TUSER_FIFO_RAM,
+		QDMA_CPM4_SBE_ERR_TUSER_FIFO_RAM,
 		"C2H ST TUSER FIFO RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_TUSER_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_WRB_COAL_DATA_RAM,
+		QDMA_CPM4_SBE_ERR_WRB_COAL_DATA_RAM,
 		"Writeback Coalescing RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_WRB_COAL_DATA_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_INT_QID2VEC_RAM,
+		QDMA_CPM4_SBE_ERR_INT_QID2VEC_RAM,
 		"Interrupt QID2VEC RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_INT_QID2VEC_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_INT_CTXT_RAM,
+		QDMA_CPM4_SBE_ERR_INT_CTXT_RAM,
 		"Interrupt context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_INT_CTXT_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_DESC_REQ_FIFO_RAM,
+		QDMA_CPM4_SBE_ERR_DESC_REQ_FIFO_RAM,
 		"C2H ST descriptor request RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_DESC_REQ_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_PFCH_CTXT_RAM,
+		QDMA_CPM4_SBE_ERR_PFCH_CTXT_RAM,
 		"C2H ST prefetch RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_PFCH_CTXT_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_WRB_CTXT_RAM,
+		QDMA_CPM4_SBE_ERR_WRB_CTXT_RAM,
 		"C2H ST completion context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_WRB_CTXT_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_PFCH_LL_RAM,
+		QDMA_CPM4_SBE_ERR_PFCH_LL_RAM,
 		"C2H ST prefetch list RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 		RAM_SBE_STS_A_PFCH_LL_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 	{
-		QDMA_S80_HARD_SBE_ERR_ALL,
+		QDMA_CPM4_SBE_ERR_ALL,
 		"All SBE errors",
-		QDMA_S80_HARD_RAM_SBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
-		QDMA_S80_HARD_SBE_ERR_ALL_MASK,
+		QDMA_CPM4_RAM_SBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_SBE_STS_A_ADDR,
+		QDMA_CPM4_SBE_ERR_ALL_MASK,
 		GLBL_ERR_STAT_ERR_RAM_SBE_MASK,
-		&qdma_s80_hard_hw_ram_sbe_err_process
+		&qdma_cpm4_hw_ram_sbe_err_process
 	},
 
 
 	/* DBE errors */
 	{
-		QDMA_S80_HARD_DBE_ERR_MI_H2C0_DAT,
+		QDMA_CPM4_DBE_ERR_MI_H2C0_DAT,
 		"H2C MM data buffer single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_MI_H2C0_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_MI_C2H0_DAT,
+		QDMA_CPM4_DBE_ERR_MI_C2H0_DAT,
 		"C2H MM data buffer single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_MI_C2H0_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_H2C_RD_BRG_DAT,
+		QDMA_CPM4_DBE_ERR_H2C_RD_BRG_DAT,
 		"Bridge master read single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_H2C_RD_BRG_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_H2C_WR_BRG_DAT,
+		QDMA_CPM4_DBE_ERR_H2C_WR_BRG_DAT,
 		"Bridge master write single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_H2C_WR_BRG_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_C2H_RD_BRG_DAT,
+		QDMA_CPM4_DBE_ERR_C2H_RD_BRG_DAT,
 		"Bridge slave read data buffer single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_C2H_RD_BRG_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_C2H_WR_BRG_DAT,
+		QDMA_CPM4_DBE_ERR_C2H_WR_BRG_DAT,
 		"Bridge slave write data buffer single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_C2H_WR_BRG_DAT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_FUNC_MAP,
+		QDMA_CPM4_DBE_ERR_FUNC_MAP,
 		"Function map RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_FUNC_MAP_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_DSC_HW_CTXT,
+		QDMA_CPM4_DBE_ERR_DSC_HW_CTXT,
 		"Descriptor engine hardware context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_DSC_HW_CTXT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_DSC_CRD_RCV,
+		QDMA_CPM4_DBE_ERR_DSC_CRD_RCV,
 		"Descriptor engine receive credit context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_DSC_CRD_RCV_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_DSC_SW_CTXT,
+		QDMA_CPM4_DBE_ERR_DSC_SW_CTXT,
 		"Descriptor engine software context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_DSC_SW_CTXT_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_DSC_CPLI,
+		QDMA_CPM4_DBE_ERR_DSC_CPLI,
 		"Descriptor engine fetch completion information RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_DSC_CPLI_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_DSC_CPLD,
+		QDMA_CPM4_DBE_ERR_DSC_CPLD,
 		"Descriptor engine fetch completion data RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_DSC_CPLD_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_PASID_CTXT_RAM,
+		QDMA_CPM4_DBE_ERR_PASID_CTXT_RAM,
 		"PASID CTXT RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_PASID_CTXT_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_TIMER_FIFO_RAM,
+		QDMA_CPM4_DBE_ERR_TIMER_FIFO_RAM,
 		"Timer fifo RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_TIMER_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_PAYLOAD_FIFO_RAM,
+		QDMA_CPM4_DBE_ERR_PAYLOAD_FIFO_RAM,
 		"Payload fifo RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_PLD_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_QID_FIFO_RAM,
+		QDMA_CPM4_DBE_ERR_QID_FIFO_RAM,
 		"C2H ST QID FIFO RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_QID_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_WRB_COAL_DATA_RAM,
+		QDMA_CPM4_DBE_ERR_WRB_COAL_DATA_RAM,
 		"Writeback Coalescing RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_WRB_COAL_DATA_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_INT_QID2VEC_RAM,
+		QDMA_CPM4_DBE_ERR_INT_QID2VEC_RAM,
 		"QID2VEC RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_INT_QID2VEC_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_INT_CTXT_RAM,
+		QDMA_CPM4_DBE_ERR_INT_CTXT_RAM,
 		"Interrupt context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_INT_CTXT_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_DESC_REQ_FIFO_RAM,
+		QDMA_CPM4_DBE_ERR_DESC_REQ_FIFO_RAM,
 		"C2H ST descriptor request RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_DESC_REQ_FIFO_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_PFCH_CTXT_RAM,
+		QDMA_CPM4_DBE_ERR_PFCH_CTXT_RAM,
 		"C2H ST prefetch RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_PFCH_CTXT_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_WRB_CTXT_RAM,
+		QDMA_CPM4_DBE_ERR_WRB_CTXT_RAM,
 		"C2H ST completion context RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_WRB_CTXT_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_PFCH_LL_RAM,
+		QDMA_CPM4_DBE_ERR_PFCH_LL_RAM,
 		"C2H ST prefetch list RAM single bit ECC error",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 		RAM_DBE_STS_A_PFCH_LL_RAM_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	},
 	{
-		QDMA_S80_HARD_DBE_ERR_ALL,
+		QDMA_CPM4_DBE_ERR_ALL,
 		"All DBE errors",
-		QDMA_S80_HARD_RAM_DBE_MSK_A_ADDR,
-		QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
-		QDMA_S80_HARD_DBE_ERR_ALL_MASK,
+		QDMA_CPM4_RAM_DBE_MSK_A_ADDR,
+		QDMA_CPM4_RAM_DBE_STS_A_ADDR,
+		QDMA_CPM4_DBE_ERR_ALL_MASK,
 		GLBL_ERR_STAT_ERR_RAM_DBE_MASK,
-		&qdma_s80_hard_hw_ram_dbe_err_process
+		&qdma_cpm4_hw_ram_dbe_err_process
 	}
 };
 
-static int32_t all_qdma_s80_hard_hw_errs[
-		QDMA_S80_HARD_TOTAL_LEAF_ERROR_AGGREGATORS] = {
+static int32_t all_qdma_cpm4_hw_errs[
+		QDMA_CPM4_TOTAL_LEAF_ERROR_AGGREGATORS] = {
 
-	QDMA_S80_HARD_DSC_ERR_ALL,
-	QDMA_S80_HARD_TRQ_ERR_ALL,
-	QDMA_S80_HARD_ST_C2H_ERR_ALL,
-	QDMA_S80_HARD_ST_FATAL_ERR_ALL,
-	QDMA_S80_HARD_ST_H2C_ERR_ALL,
-	QDMA_S80_HARD_SBE_ERR_ALL,
-	QDMA_S80_HARD_DBE_ERR_ALL
+	QDMA_CPM4_DSC_ERR_ALL,
+	QDMA_CPM4_TRQ_ERR_ALL,
+	QDMA_CPM4_ST_C2H_ERR_ALL,
+	QDMA_CPM4_ST_FATAL_ERR_ALL,
+	QDMA_CPM4_ST_H2C_ERR_ALL,
+	QDMA_CPM4_SBE_ERR_ALL,
+	QDMA_CPM4_DBE_ERR_ALL
 };
 
 
 
-union qdma_s80_hard_ind_ctxt_cmd {
+union qdma_cpm4_ind_ctxt_cmd {
 	uint32_t word;
 	struct {
 		uint32_t busy:1;
@@ -1076,13 +1079,13 @@ union qdma_s80_hard_ind_ctxt_cmd {
 	} bits;
 };
 
-struct qdma_s80_hard_indirect_ctxt_regs {
-	uint32_t qdma_ind_ctxt_data[QDMA_S80_HARD_IND_CTXT_DATA_NUM_REGS];
-	uint32_t qdma_ind_ctxt_mask[QDMA_S80_HARD_IND_CTXT_DATA_NUM_REGS];
-	union qdma_s80_hard_ind_ctxt_cmd cmd;
+struct qdma_cpm4_indirect_ctxt_regs {
+	uint32_t qdma_ind_ctxt_data[QDMA_CPM4_IND_CTXT_DATA_NUM_REGS];
+	uint32_t qdma_ind_ctxt_mask[QDMA_CPM4_IND_CTXT_DATA_NUM_REGS];
+	union qdma_cpm4_ind_ctxt_cmd cmd;
 };
 
-static struct qctx_entry qdma_s80_hard_sw_ctxt_entries[] = {
+static struct qctx_entry qdma_cpm4_sw_ctxt_entries[] = {
 	{"PIDX", 0},
 	{"IRQ Arm", 0},
 	{"Queue Enable", 0},
@@ -1107,7 +1110,7 @@ static struct qctx_entry qdma_s80_hard_sw_ctxt_entries[] = {
 	{"Descriptor Ring Base Addr (High)", 0},
 };
 
-static struct qctx_entry qdma_s80_hard_hw_ctxt_entries[] = {
+static struct qctx_entry qdma_cpm4_hw_ctxt_entries[] = {
 	{"CIDX", 0},
 	{"Credits Consumed", 0},
 	{"Descriptors Pending", 0},
@@ -1116,11 +1119,16 @@ static struct qctx_entry qdma_s80_hard_hw_ctxt_entries[] = {
 	{"Fetch Pending", 0},
 };
 
-static struct qctx_entry qdma_s80_hard_credit_ctxt_entries[] = {
+static struct qctx_entry qdma_cpm4_credit_ctxt_entries[] = {
 	{"Credit", 0},
 };
 
-static struct qctx_entry qdma_s80_hard_cmpt_ctxt_entries[] = {
+static struct qctx_entry qdma_cpm4_fmap_ctxt_entries[] = {
+	{"Queue Base", 0},
+	{"Queue Max", 0},
+};
+
+static struct qctx_entry qdma_cpm4_cmpt_ctxt_entries[] = {
 	{"Enable Status Desc Update", 0},
 	{"Enable Interrupt", 0},
 	{"Trigger Mode", 0},
@@ -1142,7 +1150,7 @@ static struct qctx_entry qdma_s80_hard_cmpt_ctxt_entries[] = {
 	{"Full Update", 0},
 };
 
-static struct qctx_entry qdma_s80_hard_c2h_pftch_ctxt_entries[] = {
+static struct qctx_entry qdma_cpm4_c2h_pftch_ctxt_entries[] = {
 	{"Bypass", 0},
 	{"Buffer Size Index", 0},
 	{"Port Id", 0},
@@ -1153,14 +1161,14 @@ static struct qctx_entry qdma_s80_hard_c2h_pftch_ctxt_entries[] = {
 	{"Valid", 0},
 };
 
-static struct qctx_entry qdma_s80_hard_qid2vec_ctxt_entries[] = {
+static struct qctx_entry qdma_cpm4_qid2vec_ctxt_entries[] = {
 	{"c2h_vector", 0},
 	{"c2h_en_coal", 0},
 	{"h2c_vector", 0},
 	{"h2c_en_coal", 0},
 };
 
-static struct qctx_entry qdma_s80_hard_ind_intr_ctxt_entries[] = {
+static struct qctx_entry qdma_cpm4_ind_intr_ctxt_entries[] = {
 	{"valid", 0},
 	{"vec", 0},
 	{"int_st", 0},
@@ -1171,64 +1179,68 @@ static struct qctx_entry qdma_s80_hard_ind_intr_ctxt_entries[] = {
 	{"pidx", 0},
 };
 
-static int qdma_s80_hard_indirect_reg_invalidate(void *dev_hndl,
+static int qdma_cpm4_indirect_reg_invalidate(void *dev_hndl,
 		enum ind_ctxt_cmd_sel sel, uint16_t hw_qid);
-static int qdma_s80_hard_indirect_reg_clear(void *dev_hndl,
+static int qdma_cpm4_indirect_reg_clear(void *dev_hndl,
 		enum ind_ctxt_cmd_sel sel, uint16_t hw_qid);
-static int qdma_s80_hard_indirect_reg_read(void *dev_hndl,
+static int qdma_cpm4_indirect_reg_read(void *dev_hndl,
 		enum ind_ctxt_cmd_sel sel,
 		uint16_t hw_qid, uint32_t cnt, uint32_t *data);
-static int qdma_s80_hard_indirect_reg_write(void *dev_hndl,
+static int qdma_cpm4_indirect_reg_write(void *dev_hndl,
 		enum ind_ctxt_cmd_sel sel,
 		uint16_t hw_qid, uint32_t *data, uint16_t cnt);
 
-uint32_t qdma_s80_hard_get_config_num_regs(void)
+uint32_t qdma_cpm4_get_config_num_regs(void)
 {
-	return qdma_s80_hard_config_num_regs_get();
+	return qdma_cpm4_config_num_regs_get();
 }
 
-struct xreg_info *qdma_s80_hard_get_config_regs(void)
+struct xreg_info *qdma_cpm4_get_config_regs(void)
 {
-	return qdma_s80_hard_config_regs_get();
+	return qdma_cpm4_config_regs_get();
 }
 
-uint32_t qdma_s80_hard_reg_dump_buf_len(void)
+uint32_t qdma_cpm4_reg_dump_buf_len(void)
 {
-	uint32_t length = (qdma_s80_hard_config_num_regs_get() + 1)
+	uint32_t length = (qdma_cpm4_config_num_regs_get() + 1)
 			* REG_DUMP_SIZE_PER_LINE;
 	return length;
 }
 
-int qdma_s80_hard_context_buf_len(uint8_t st,
+int qdma_cpm4_context_buf_len(uint8_t st,
 		enum qdma_dev_q_type q_type, uint32_t *req_buflen)
 {
 	uint32_t len = 0;
 	int rv = 0;
 
 	if (q_type == QDMA_DEV_Q_TYPE_CMPT) {
-		len += (((sizeof(qdma_s80_hard_cmpt_ctxt_entries) /
-			sizeof(qdma_s80_hard_cmpt_ctxt_entries[0])) + 1) *
+		len += (((sizeof(qdma_cpm4_cmpt_ctxt_entries) /
+			sizeof(qdma_cpm4_cmpt_ctxt_entries[0])) + 1) *
 			REG_DUMP_SIZE_PER_LINE);
 	} else {
-		len += (((sizeof(qdma_s80_hard_sw_ctxt_entries) /
-				sizeof(qdma_s80_hard_sw_ctxt_entries[0])) + 1) *
+		len += (((sizeof(qdma_cpm4_sw_ctxt_entries) /
+				sizeof(qdma_cpm4_sw_ctxt_entries[0])) + 1) *
 				REG_DUMP_SIZE_PER_LINE);
 
-		len += (((sizeof(qdma_s80_hard_hw_ctxt_entries) /
-			sizeof(qdma_s80_hard_hw_ctxt_entries[0])) + 1) *
+		len += (((sizeof(qdma_cpm4_hw_ctxt_entries) /
+			sizeof(qdma_cpm4_hw_ctxt_entries[0])) + 1) *
 			REG_DUMP_SIZE_PER_LINE);
 
-		len += (((sizeof(qdma_s80_hard_credit_ctxt_entries) /
-			sizeof(qdma_s80_hard_credit_ctxt_entries[0])) + 1) *
+		len += (((sizeof(qdma_cpm4_credit_ctxt_entries) /
+			sizeof(qdma_cpm4_credit_ctxt_entries[0])) + 1) *
+			REG_DUMP_SIZE_PER_LINE);
+
+		len += (((sizeof(qdma_cpm4_fmap_ctxt_entries) /
+			sizeof(qdma_cpm4_fmap_ctxt_entries[0])) + 1) *
 			REG_DUMP_SIZE_PER_LINE);
 
 		if (st && (q_type == QDMA_DEV_Q_TYPE_C2H)) {
-			len += (((sizeof(qdma_s80_hard_cmpt_ctxt_entries) /
-			sizeof(qdma_s80_hard_cmpt_ctxt_entries[0])) + 1) *
+			len += (((sizeof(qdma_cpm4_cmpt_ctxt_entries) /
+			sizeof(qdma_cpm4_cmpt_ctxt_entries[0])) + 1) *
 			REG_DUMP_SIZE_PER_LINE);
 
-			len += (((sizeof(qdma_s80_hard_c2h_pftch_ctxt_entries) /
-			sizeof(qdma_s80_hard_c2h_pftch_ctxt_entries[0])) + 1) *
+			len += (((sizeof(qdma_cpm4_c2h_pftch_ctxt_entries) /
+			sizeof(qdma_cpm4_c2h_pftch_ctxt_entries[0])) + 1) *
 			REG_DUMP_SIZE_PER_LINE);
 		}
 	}
@@ -1237,12 +1249,12 @@ int qdma_s80_hard_context_buf_len(uint8_t st,
 	return rv;
 }
 
-static uint32_t qdma_s80_hard_intr_context_buf_len(void)
+static uint32_t qdma_cpm4_intr_context_buf_len(void)
 {
 	uint32_t len = 0;
 
-	len += (((sizeof(qdma_s80_hard_ind_intr_ctxt_entries) /
-			sizeof(qdma_s80_hard_ind_intr_ctxt_entries[0])) + 1) *
+	len += (((sizeof(qdma_cpm4_ind_intr_ctxt_entries) /
+			sizeof(qdma_cpm4_ind_intr_ctxt_entries[0])) + 1) *
 			REG_DUMP_SIZE_PER_LINE);
 	return len;
 }
@@ -1251,31 +1263,31 @@ static uint32_t qdma_s80_hard_intr_context_buf_len(void)
  * qdma_acc_fill_sw_ctxt() - Helper function to fill sw context into structure
  *
  */
-static void qdma_s80_hard_fill_sw_ctxt(struct qdma_descq_sw_ctxt *sw_ctxt)
+static void qdma_cpm4_fill_sw_ctxt(struct qdma_descq_sw_ctxt *sw_ctxt)
 {
-	qdma_s80_hard_sw_ctxt_entries[0].value = sw_ctxt->pidx;
-	qdma_s80_hard_sw_ctxt_entries[1].value = sw_ctxt->irq_arm;
-	qdma_s80_hard_sw_ctxt_entries[2].value = sw_ctxt->qen;
-	qdma_s80_hard_sw_ctxt_entries[3].value = sw_ctxt->frcd_en;
-	qdma_s80_hard_sw_ctxt_entries[4].value = sw_ctxt->wbi_chk;
-	qdma_s80_hard_sw_ctxt_entries[5].value = sw_ctxt->wbi_intvl_en;
-	qdma_s80_hard_sw_ctxt_entries[6].value = sw_ctxt->fnc_id;
-	qdma_s80_hard_sw_ctxt_entries[7].value = sw_ctxt->rngsz_idx;
-	qdma_s80_hard_sw_ctxt_entries[8].value = sw_ctxt->desc_sz;
-	qdma_s80_hard_sw_ctxt_entries[9].value = sw_ctxt->bypass;
-	qdma_s80_hard_sw_ctxt_entries[10].value = sw_ctxt->mm_chn;
-	qdma_s80_hard_sw_ctxt_entries[11].value = sw_ctxt->wbk_en;
-	qdma_s80_hard_sw_ctxt_entries[12].value = sw_ctxt->irq_en;
-	qdma_s80_hard_sw_ctxt_entries[13].value = sw_ctxt->port_id;
-	qdma_s80_hard_sw_ctxt_entries[14].value = sw_ctxt->irq_no_last;
-	qdma_s80_hard_sw_ctxt_entries[15].value = sw_ctxt->err;
-	qdma_s80_hard_sw_ctxt_entries[16].value = sw_ctxt->err_wb_sent;
-	qdma_s80_hard_sw_ctxt_entries[17].value = sw_ctxt->irq_req;
-	qdma_s80_hard_sw_ctxt_entries[18].value = sw_ctxt->mrkr_dis;
-	qdma_s80_hard_sw_ctxt_entries[19].value = sw_ctxt->is_mm;
-	qdma_s80_hard_sw_ctxt_entries[20].value =
+	qdma_cpm4_sw_ctxt_entries[0].value = sw_ctxt->pidx;
+	qdma_cpm4_sw_ctxt_entries[1].value = sw_ctxt->irq_arm;
+	qdma_cpm4_sw_ctxt_entries[2].value = sw_ctxt->qen;
+	qdma_cpm4_sw_ctxt_entries[3].value = sw_ctxt->frcd_en;
+	qdma_cpm4_sw_ctxt_entries[4].value = sw_ctxt->wbi_chk;
+	qdma_cpm4_sw_ctxt_entries[5].value = sw_ctxt->wbi_intvl_en;
+	qdma_cpm4_sw_ctxt_entries[6].value = sw_ctxt->fnc_id;
+	qdma_cpm4_sw_ctxt_entries[7].value = sw_ctxt->rngsz_idx;
+	qdma_cpm4_sw_ctxt_entries[8].value = sw_ctxt->desc_sz;
+	qdma_cpm4_sw_ctxt_entries[9].value = sw_ctxt->bypass;
+	qdma_cpm4_sw_ctxt_entries[10].value = sw_ctxt->mm_chn;
+	qdma_cpm4_sw_ctxt_entries[11].value = sw_ctxt->wbk_en;
+	qdma_cpm4_sw_ctxt_entries[12].value = sw_ctxt->irq_en;
+	qdma_cpm4_sw_ctxt_entries[13].value = sw_ctxt->port_id;
+	qdma_cpm4_sw_ctxt_entries[14].value = sw_ctxt->irq_no_last;
+	qdma_cpm4_sw_ctxt_entries[15].value = sw_ctxt->err;
+	qdma_cpm4_sw_ctxt_entries[16].value = sw_ctxt->err_wb_sent;
+	qdma_cpm4_sw_ctxt_entries[17].value = sw_ctxt->irq_req;
+	qdma_cpm4_sw_ctxt_entries[18].value = sw_ctxt->mrkr_dis;
+	qdma_cpm4_sw_ctxt_entries[19].value = sw_ctxt->is_mm;
+	qdma_cpm4_sw_ctxt_entries[20].value =
 			sw_ctxt->ring_bs_addr & 0xFFFFFFFF;
-	qdma_s80_hard_sw_ctxt_entries[21].value =
+	qdma_cpm4_sw_ctxt_entries[21].value =
 		(sw_ctxt->ring_bs_addr >> 32) & 0xFFFFFFFF;
 }
 
@@ -1284,29 +1296,29 @@ static void qdma_s80_hard_fill_sw_ctxt(struct qdma_descq_sw_ctxt *sw_ctxt)
  *                         into structure
  *
  */
-static void qdma_s80_hard_fill_cmpt_ctxt(struct qdma_descq_cmpt_ctxt *cmpt_ctxt)
+static void qdma_cpm4_fill_cmpt_ctxt(struct qdma_descq_cmpt_ctxt *cmpt_ctxt)
 {
-	qdma_s80_hard_cmpt_ctxt_entries[0].value = cmpt_ctxt->en_stat_desc;
-	qdma_s80_hard_cmpt_ctxt_entries[1].value = cmpt_ctxt->en_int;
-	qdma_s80_hard_cmpt_ctxt_entries[2].value = cmpt_ctxt->trig_mode;
-	qdma_s80_hard_cmpt_ctxt_entries[3].value = cmpt_ctxt->fnc_id;
-	qdma_s80_hard_cmpt_ctxt_entries[4].value = cmpt_ctxt->counter_idx;
-	qdma_s80_hard_cmpt_ctxt_entries[5].value = cmpt_ctxt->timer_idx;
-	qdma_s80_hard_cmpt_ctxt_entries[6].value = cmpt_ctxt->in_st;
-	qdma_s80_hard_cmpt_ctxt_entries[7].value = cmpt_ctxt->color;
-	qdma_s80_hard_cmpt_ctxt_entries[8].value = cmpt_ctxt->ringsz_idx;
-	qdma_s80_hard_cmpt_ctxt_entries[9].value =
+	qdma_cpm4_cmpt_ctxt_entries[0].value = cmpt_ctxt->en_stat_desc;
+	qdma_cpm4_cmpt_ctxt_entries[1].value = cmpt_ctxt->en_int;
+	qdma_cpm4_cmpt_ctxt_entries[2].value = cmpt_ctxt->trig_mode;
+	qdma_cpm4_cmpt_ctxt_entries[3].value = cmpt_ctxt->fnc_id;
+	qdma_cpm4_cmpt_ctxt_entries[4].value = cmpt_ctxt->counter_idx;
+	qdma_cpm4_cmpt_ctxt_entries[5].value = cmpt_ctxt->timer_idx;
+	qdma_cpm4_cmpt_ctxt_entries[6].value = cmpt_ctxt->in_st;
+	qdma_cpm4_cmpt_ctxt_entries[7].value = cmpt_ctxt->color;
+	qdma_cpm4_cmpt_ctxt_entries[8].value = cmpt_ctxt->ringsz_idx;
+	qdma_cpm4_cmpt_ctxt_entries[9].value =
 			cmpt_ctxt->bs_addr & 0xFFFFFFFF;
-	qdma_s80_hard_cmpt_ctxt_entries[10].value =
+	qdma_cpm4_cmpt_ctxt_entries[10].value =
 		(cmpt_ctxt->bs_addr >> 32) & 0xFFFFFFFF;
-	qdma_s80_hard_cmpt_ctxt_entries[11].value = cmpt_ctxt->desc_sz;
-	qdma_s80_hard_cmpt_ctxt_entries[12].value = cmpt_ctxt->pidx;
-	qdma_s80_hard_cmpt_ctxt_entries[13].value = cmpt_ctxt->cidx;
-	qdma_s80_hard_cmpt_ctxt_entries[14].value = cmpt_ctxt->valid;
-	qdma_s80_hard_cmpt_ctxt_entries[15].value = cmpt_ctxt->err;
-	qdma_s80_hard_cmpt_ctxt_entries[16].value = cmpt_ctxt->user_trig_pend;
-	qdma_s80_hard_cmpt_ctxt_entries[17].value = cmpt_ctxt->timer_running;
-	qdma_s80_hard_cmpt_ctxt_entries[18].value = cmpt_ctxt->full_upd;
+	qdma_cpm4_cmpt_ctxt_entries[11].value = cmpt_ctxt->desc_sz;
+	qdma_cpm4_cmpt_ctxt_entries[12].value = cmpt_ctxt->pidx;
+	qdma_cpm4_cmpt_ctxt_entries[13].value = cmpt_ctxt->cidx;
+	qdma_cpm4_cmpt_ctxt_entries[14].value = cmpt_ctxt->valid;
+	qdma_cpm4_cmpt_ctxt_entries[15].value = cmpt_ctxt->err;
+	qdma_cpm4_cmpt_ctxt_entries[16].value = cmpt_ctxt->user_trig_pend;
+	qdma_cpm4_cmpt_ctxt_entries[17].value = cmpt_ctxt->timer_running;
+	qdma_cpm4_cmpt_ctxt_entries[18].value = cmpt_ctxt->full_upd;
 
 }
 
@@ -1314,14 +1326,14 @@ static void qdma_s80_hard_fill_cmpt_ctxt(struct qdma_descq_cmpt_ctxt *cmpt_ctxt)
  * qdma_acc_fill_hw_ctxt() - Helper function to fill HW context into structure
  *
  */
-static void qdma_s80_hard_fill_hw_ctxt(struct qdma_descq_hw_ctxt *hw_ctxt)
+static void qdma_cpm4_fill_hw_ctxt(struct qdma_descq_hw_ctxt *hw_ctxt)
 {
-	qdma_s80_hard_hw_ctxt_entries[0].value = hw_ctxt->cidx;
-	qdma_s80_hard_hw_ctxt_entries[1].value = hw_ctxt->crd_use;
-	qdma_s80_hard_hw_ctxt_entries[2].value = hw_ctxt->dsc_pend;
-	qdma_s80_hard_hw_ctxt_entries[3].value = hw_ctxt->idl_stp_b;
-	qdma_s80_hard_hw_ctxt_entries[4].value = hw_ctxt->evt_pnd;
-	qdma_s80_hard_hw_ctxt_entries[5].value = hw_ctxt->fetch_pnd;
+	qdma_cpm4_hw_ctxt_entries[0].value = hw_ctxt->cidx;
+	qdma_cpm4_hw_ctxt_entries[1].value = hw_ctxt->crd_use;
+	qdma_cpm4_hw_ctxt_entries[2].value = hw_ctxt->dsc_pend;
+	qdma_cpm4_hw_ctxt_entries[3].value = hw_ctxt->idl_stp_b;
+	qdma_cpm4_hw_ctxt_entries[4].value = hw_ctxt->evt_pnd;
+	qdma_cpm4_hw_ctxt_entries[5].value = hw_ctxt->fetch_pnd;
 }
 
 /*
@@ -1329,10 +1341,10 @@ static void qdma_s80_hard_fill_hw_ctxt(struct qdma_descq_hw_ctxt *hw_ctxt)
  *                           into structure
  *
  */
-static void qdma_s80_hard_fill_credit_ctxt(
+static void qdma_cpm4_fill_credit_ctxt(
 		struct qdma_descq_credit_ctxt *cr_ctxt)
 {
-	qdma_s80_hard_credit_ctxt_entries[0].value = cr_ctxt->credit;
+	qdma_cpm4_credit_ctxt_entries[0].value = cr_ctxt->credit;
 }
 
 /*
@@ -1340,48 +1352,59 @@ static void qdma_s80_hard_fill_credit_ctxt(
  *                           into structure
  *
  */
-static void qdma_s80_hard_fill_pfetch_ctxt(
+static void qdma_cpm4_fill_pfetch_ctxt(
 		struct qdma_descq_prefetch_ctxt *pfetch_ctxt)
 {
-	qdma_s80_hard_c2h_pftch_ctxt_entries[0].value = pfetch_ctxt->bypass;
-	qdma_s80_hard_c2h_pftch_ctxt_entries[1].value = pfetch_ctxt->bufsz_idx;
-	qdma_s80_hard_c2h_pftch_ctxt_entries[2].value = pfetch_ctxt->port_id;
-	qdma_s80_hard_c2h_pftch_ctxt_entries[3].value = pfetch_ctxt->err;
-	qdma_s80_hard_c2h_pftch_ctxt_entries[4].value = pfetch_ctxt->pfch_en;
-	qdma_s80_hard_c2h_pftch_ctxt_entries[5].value = pfetch_ctxt->pfch;
-	qdma_s80_hard_c2h_pftch_ctxt_entries[6].value = pfetch_ctxt->sw_crdt;
-	qdma_s80_hard_c2h_pftch_ctxt_entries[7].value = pfetch_ctxt->valid;
-}
-
-static void qdma_s80_hard_fill_qid2vec_ctxt(struct qdma_qid2vec *qid2vec_ctxt)
-{
-	qdma_s80_hard_qid2vec_ctxt_entries[0].value = qid2vec_ctxt->c2h_vector;
-	qdma_s80_hard_qid2vec_ctxt_entries[1].value = qid2vec_ctxt->c2h_en_coal;
-	qdma_s80_hard_qid2vec_ctxt_entries[2].value = qid2vec_ctxt->h2c_vector;
-	qdma_s80_hard_qid2vec_ctxt_entries[3].value = qid2vec_ctxt->h2c_en_coal;
-}
-
-static void qdma_s80_hard_fill_intr_ctxt(
-		struct qdma_indirect_intr_ctxt *intr_ctxt)
-{
-	qdma_s80_hard_ind_intr_ctxt_entries[0].value = intr_ctxt->valid;
-	qdma_s80_hard_ind_intr_ctxt_entries[1].value = intr_ctxt->vec;
-	qdma_s80_hard_ind_intr_ctxt_entries[2].value = intr_ctxt->int_st;
-	qdma_s80_hard_ind_intr_ctxt_entries[3].value = intr_ctxt->color;
-	qdma_s80_hard_ind_intr_ctxt_entries[4].value =
-			intr_ctxt->baddr_4k & 0xFFFFFFFF;
-	qdma_s80_hard_ind_intr_ctxt_entries[5].value =
-			(intr_ctxt->baddr_4k >> 32) & 0xFFFFFFFF;
-	qdma_s80_hard_ind_intr_ctxt_entries[6].value = intr_ctxt->page_size;
-	qdma_s80_hard_ind_intr_ctxt_entries[7].value = intr_ctxt->pidx;
+	qdma_cpm4_c2h_pftch_ctxt_entries[0].value = pfetch_ctxt->bypass;
+	qdma_cpm4_c2h_pftch_ctxt_entries[1].value = pfetch_ctxt->bufsz_idx;
+	qdma_cpm4_c2h_pftch_ctxt_entries[2].value = pfetch_ctxt->port_id;
+	qdma_cpm4_c2h_pftch_ctxt_entries[3].value = pfetch_ctxt->err;
+	qdma_cpm4_c2h_pftch_ctxt_entries[4].value = pfetch_ctxt->pfch_en;
+	qdma_cpm4_c2h_pftch_ctxt_entries[5].value = pfetch_ctxt->pfch;
+	qdma_cpm4_c2h_pftch_ctxt_entries[6].value = pfetch_ctxt->sw_crdt;
+	qdma_cpm4_c2h_pftch_ctxt_entries[7].value = pfetch_ctxt->valid;
 }
 
 /*
- * dump_s80_hard_context() - Helper function to dump queue context into string
+ * qdma_cpm4_fill_fmap_ctxt() - Helper function to fill fmap context
+ *                           into structure
+ *
+ */
+static void qdma_cpm4_fill_fmap_ctxt(struct qdma_fmap_cfg *fmap_ctxt)
+{
+	qdma_cpm4_fmap_ctxt_entries[0].value = fmap_ctxt->qbase;
+	qdma_cpm4_fmap_ctxt_entries[1].value = fmap_ctxt->qmax;
+}
+
+static void qdma_cpm4_fill_qid2vec_ctxt(struct qdma_qid2vec *qid2vec_ctxt)
+{
+	qdma_cpm4_qid2vec_ctxt_entries[0].value = qid2vec_ctxt->c2h_vector;
+	qdma_cpm4_qid2vec_ctxt_entries[1].value = qid2vec_ctxt->c2h_en_coal;
+	qdma_cpm4_qid2vec_ctxt_entries[2].value = qid2vec_ctxt->h2c_vector;
+	qdma_cpm4_qid2vec_ctxt_entries[3].value = qid2vec_ctxt->h2c_en_coal;
+}
+
+static void qdma_cpm4_fill_intr_ctxt(
+		struct qdma_indirect_intr_ctxt *intr_ctxt)
+{
+	qdma_cpm4_ind_intr_ctxt_entries[0].value = intr_ctxt->valid;
+	qdma_cpm4_ind_intr_ctxt_entries[1].value = intr_ctxt->vec;
+	qdma_cpm4_ind_intr_ctxt_entries[2].value = intr_ctxt->int_st;
+	qdma_cpm4_ind_intr_ctxt_entries[3].value = intr_ctxt->color;
+	qdma_cpm4_ind_intr_ctxt_entries[4].value =
+			intr_ctxt->baddr_4k & 0xFFFFFFFF;
+	qdma_cpm4_ind_intr_ctxt_entries[5].value =
+			(intr_ctxt->baddr_4k >> 32) & 0xFFFFFFFF;
+	qdma_cpm4_ind_intr_ctxt_entries[6].value = intr_ctxt->page_size;
+	qdma_cpm4_ind_intr_ctxt_entries[7].value = intr_ctxt->pidx;
+}
+
+/*
+ * dump_cpm4_context() - Helper function to dump queue context into string
  *
  * return len - length of the string copied into buffer
  */
-static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
+static int dump_cpm4_context(struct qdma_descq_context *queue_context,
 		uint8_t st,	enum qdma_dev_q_type q_type,
 		char *buf, int buf_sz)
 {
@@ -1389,7 +1412,7 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 	int n;
 	int len = 0;
 	int rv;
-	char banner[DEBGFS_LINE_SZ];
+	char banner[DEBGFS_LINE_SZ] = "";
 
 	if (queue_context == NULL) {
 		qdma_log_error("%s: queue_context is NULL, err:%d\n",
@@ -1406,14 +1429,16 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_fill_sw_ctxt(&queue_context->sw_ctxt);
-	qdma_s80_hard_fill_hw_ctxt(&queue_context->hw_ctxt);
-	qdma_s80_hard_fill_credit_ctxt(&queue_context->cr_ctxt);
-	qdma_s80_hard_fill_qid2vec_ctxt(&queue_context->qid2vec);
+	qdma_cpm4_fill_sw_ctxt(&queue_context->sw_ctxt);
+	qdma_cpm4_fill_hw_ctxt(&queue_context->hw_ctxt);
+	qdma_cpm4_fill_credit_ctxt(&queue_context->cr_ctxt);
+	qdma_cpm4_fill_qid2vec_ctxt(&queue_context->qid2vec);
 	if (st && (q_type == QDMA_DEV_Q_TYPE_C2H)) {
-		qdma_s80_hard_fill_pfetch_ctxt(&queue_context->pfetch_ctxt);
-		qdma_s80_hard_fill_cmpt_ctxt(&queue_context->cmpt_ctxt);
+		qdma_cpm4_fill_pfetch_ctxt(&queue_context->pfetch_ctxt);
+		qdma_cpm4_fill_cmpt_ctxt(&queue_context->cmpt_ctxt);
 	}
+
+	qdma_cpm4_fill_fmap_ctxt(&queue_context->fmap);
 
 	if (q_type != QDMA_DEV_Q_TYPE_CMPT) {
 		for (i = 0; i < DEBGFS_LINE_SZ - 5; i++) {
@@ -1430,8 +1455,8 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 		}
 
 		/* SW context dump */
-		n = sizeof(qdma_s80_hard_sw_ctxt_entries) /
-				sizeof((qdma_s80_hard_sw_ctxt_entries)[0]);
+		n = sizeof(qdma_cpm4_sw_ctxt_entries) /
+				sizeof((qdma_cpm4_sw_ctxt_entries)[0]);
 		for (i = 0; i < n; i++) {
 			if ((len >= buf_sz) ||
 				((len + DEBGFS_LINE_SZ) >= buf_sz))
@@ -1477,9 +1502,9 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 			rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len),
 				DEBGFS_LINE_SZ,
 				"%-47s %#-10x %u\n",
-				qdma_s80_hard_sw_ctxt_entries[i].name,
-				qdma_s80_hard_sw_ctxt_entries[i].value,
-				qdma_s80_hard_sw_ctxt_entries[i].value);
+				qdma_cpm4_sw_ctxt_entries[i].name,
+				qdma_cpm4_sw_ctxt_entries[i].value,
+				qdma_cpm4_sw_ctxt_entries[i].value);
 			if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
 				qdma_log_error(
 					"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
@@ -1491,8 +1516,8 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 		}
 
 		/* HW context dump */
-		n = sizeof(qdma_s80_hard_hw_ctxt_entries) /
-				sizeof((qdma_s80_hard_hw_ctxt_entries)[0]);
+		n = sizeof(qdma_cpm4_hw_ctxt_entries) /
+				sizeof((qdma_cpm4_hw_ctxt_entries)[0]);
 		for (i = 0; i < n; i++) {
 			if ((len >= buf_sz) ||
 				((len + DEBGFS_LINE_SZ) >= buf_sz))
@@ -1539,9 +1564,9 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 			rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len),
 				DEBGFS_LINE_SZ,
 				"%-47s %#-10x %u\n",
-				qdma_s80_hard_hw_ctxt_entries[i].name,
-				qdma_s80_hard_hw_ctxt_entries[i].value,
-				qdma_s80_hard_hw_ctxt_entries[i].value);
+				qdma_cpm4_hw_ctxt_entries[i].name,
+				qdma_cpm4_hw_ctxt_entries[i].value,
+				qdma_cpm4_hw_ctxt_entries[i].value);
 			if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
 				qdma_log_error(
 					"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
@@ -1553,8 +1578,8 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 		}
 
 		/* Credit context dump */
-		n = sizeof(qdma_s80_hard_credit_ctxt_entries) /
-			sizeof((qdma_s80_hard_credit_ctxt_entries)[0]);
+		n = sizeof(qdma_cpm4_credit_ctxt_entries) /
+			sizeof((qdma_cpm4_credit_ctxt_entries)[0]);
 		for (i = 0; i < n; i++) {
 			if ((len >= buf_sz) ||
 				((len + DEBGFS_LINE_SZ) >= buf_sz))
@@ -1602,9 +1627,9 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 			rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len),
 				DEBGFS_LINE_SZ,
 				"%-47s %#-10x %u\n",
-				qdma_s80_hard_credit_ctxt_entries[i].name,
-				qdma_s80_hard_credit_ctxt_entries[i].value,
-				qdma_s80_hard_credit_ctxt_entries[i].value);
+				qdma_cpm4_credit_ctxt_entries[i].name,
+				qdma_cpm4_credit_ctxt_entries[i].value,
+				qdma_cpm4_credit_ctxt_entries[i].value);
 			if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
 				qdma_log_error(
 					"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
@@ -1617,8 +1642,8 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 	}
 
 	/* SW context dump */
-	n = sizeof(qdma_s80_hard_qid2vec_ctxt_entries) /
-			sizeof((qdma_s80_hard_qid2vec_ctxt_entries)[0]);
+	n = sizeof(qdma_cpm4_qid2vec_ctxt_entries) /
+			sizeof((qdma_cpm4_qid2vec_ctxt_entries)[0]);
 	for (i = 0; i < n; i++) {
 		if ((len >= buf_sz) ||
 			((len + DEBGFS_LINE_SZ) >= buf_sz))
@@ -1664,9 +1689,9 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 
 		rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len), DEBGFS_LINE_SZ,
 			"%-47s %#-10x %u\n",
-			qdma_s80_hard_qid2vec_ctxt_entries[i].name,
-			qdma_s80_hard_qid2vec_ctxt_entries[i].value,
-			qdma_s80_hard_qid2vec_ctxt_entries[i].value);
+			qdma_cpm4_qid2vec_ctxt_entries[i].name,
+			qdma_cpm4_qid2vec_ctxt_entries[i].value,
+			qdma_cpm4_qid2vec_ctxt_entries[i].value);
 		if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
 			qdma_log_error(
 				"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
@@ -1681,8 +1706,8 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 	if ((q_type == QDMA_DEV_Q_TYPE_CMPT) ||
 			(st && q_type == QDMA_DEV_Q_TYPE_C2H)) {
 		/* Completion context dump */
-		n = sizeof(qdma_s80_hard_cmpt_ctxt_entries) /
-				sizeof((qdma_s80_hard_cmpt_ctxt_entries)[0]);
+		n = sizeof(qdma_cpm4_cmpt_ctxt_entries) /
+				sizeof((qdma_cpm4_cmpt_ctxt_entries)[0]);
 		for (i = 0; i < n; i++) {
 			if ((len >= buf_sz) ||
 				((len + DEBGFS_LINE_SZ) >= buf_sz))
@@ -1730,9 +1755,9 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 			rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len),
 				DEBGFS_LINE_SZ,
 				"%-47s %#-10x %u\n",
-				qdma_s80_hard_cmpt_ctxt_entries[i].name,
-				qdma_s80_hard_cmpt_ctxt_entries[i].value,
-				qdma_s80_hard_cmpt_ctxt_entries[i].value);
+				qdma_cpm4_cmpt_ctxt_entries[i].name,
+				qdma_cpm4_cmpt_ctxt_entries[i].value,
+				qdma_cpm4_cmpt_ctxt_entries[i].value);
 			if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
 				qdma_log_error(
 					"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
@@ -1746,8 +1771,8 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 
 	if (st && q_type == QDMA_DEV_Q_TYPE_C2H) {
 		/* Prefetch context dump */
-		n = sizeof(qdma_s80_hard_c2h_pftch_ctxt_entries) /
-			sizeof(qdma_s80_hard_c2h_pftch_ctxt_entries[0]);
+		n = sizeof(qdma_cpm4_c2h_pftch_ctxt_entries) /
+			sizeof(qdma_cpm4_c2h_pftch_ctxt_entries[0]);
 		for (i = 0; i < n; i++) {
 			if ((len >= buf_sz) ||
 				((len + DEBGFS_LINE_SZ) >= buf_sz))
@@ -1795,9 +1820,9 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 			rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len),
 				DEBGFS_LINE_SZ,
 				"%-47s %#-10x %u\n",
-				qdma_s80_hard_c2h_pftch_ctxt_entries[i].name,
-				qdma_s80_hard_c2h_pftch_ctxt_entries[i].value,
-				qdma_s80_hard_c2h_pftch_ctxt_entries[i].value);
+				qdma_cpm4_c2h_pftch_ctxt_entries[i].name,
+				qdma_cpm4_c2h_pftch_ctxt_entries[i].value,
+				qdma_cpm4_c2h_pftch_ctxt_entries[i].value);
 			if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
 				qdma_log_error(
 					"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
@@ -1807,6 +1832,69 @@ static int dump_s80_hard_context(struct qdma_descq_context *queue_context,
 			}
 			len += rv;
 		}
+	}
+
+	/* Fmap context dump */
+	n = sizeof(qdma_cpm4_fmap_ctxt_entries) /
+		sizeof(qdma_cpm4_fmap_ctxt_entries[0]);
+	for (i = 0; i < n; i++) {
+		if ((len >= buf_sz) ||
+			((len + DEBGFS_LINE_SZ) >= buf_sz))
+			goto INSUF_BUF_EXIT;
+
+		if (i == 0) {
+			if ((len + (3 * DEBGFS_LINE_SZ)) >= buf_sz)
+				goto INSUF_BUF_EXIT;
+
+			rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len),
+				DEBGFS_LINE_SZ, "\n%s", banner);
+			if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
+				qdma_log_error(
+			"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
+					__LINE__, __func__,
+					rv);
+				goto INSUF_BUF_EXIT;
+			}
+			len += rv;
+
+			rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len),
+				DEBGFS_LINE_SZ, "\n%40s",
+				"Fmap Context");
+			if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
+				qdma_log_error(
+			"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
+					__LINE__, __func__,
+					rv);
+				goto INSUF_BUF_EXIT;
+			}
+			len += rv;
+
+			rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len),
+				DEBGFS_LINE_SZ, "\n%s\n", banner);
+			if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
+				qdma_log_error(
+			"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
+					__LINE__, __func__,
+					rv);
+				goto INSUF_BUF_EXIT;
+			}
+			len += rv;
+		}
+
+		rv = QDMA_SNPRINTF_S(buf + len,
+			(buf_sz - len), DEBGFS_LINE_SZ,
+			"%-47s %#-10x %u\n",
+			qdma_cpm4_fmap_ctxt_entries[i].name,
+			qdma_cpm4_fmap_ctxt_entries[i].value,
+			qdma_cpm4_fmap_ctxt_entries[i].value);
+		if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
+			qdma_log_error(
+			"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
+				__LINE__, __func__,
+				rv);
+			goto INSUF_BUF_EXIT;
+		}
+		len += rv;
 	}
 
 	return len;
@@ -1830,7 +1918,7 @@ INSUF_BUF_EXIT:
 	return -QDMA_ERR_NO_MEM;
 }
 
-static int dump_s80_hard_intr_context(struct qdma_indirect_intr_ctxt *intr_ctx,
+static int dump_cpm4_intr_context(struct qdma_indirect_intr_ctxt *intr_ctx,
 		int ring_index,
 		char *buf, int buf_sz)
 {
@@ -1838,9 +1926,9 @@ static int dump_s80_hard_intr_context(struct qdma_indirect_intr_ctxt *intr_ctx,
 	int n;
 	int len = 0;
 	int rv;
-	char banner[DEBGFS_LINE_SZ];
+	char banner[DEBGFS_LINE_SZ] = "";
 
-	qdma_s80_hard_fill_intr_ctxt(intr_ctx);
+	qdma_cpm4_fill_intr_ctxt(intr_ctx);
 
 	for (i = 0; i < DEBGFS_LINE_SZ - 5; i++) {
 		rv = QDMA_SNPRINTF_S(banner + i,
@@ -1856,8 +1944,8 @@ static int dump_s80_hard_intr_context(struct qdma_indirect_intr_ctxt *intr_ctx,
 	}
 
 	/* Interrupt context dump */
-	n = sizeof(qdma_s80_hard_ind_intr_ctxt_entries) /
-			sizeof((qdma_s80_hard_ind_intr_ctxt_entries)[0]);
+	n = sizeof(qdma_cpm4_ind_intr_ctxt_entries) /
+			sizeof((qdma_cpm4_ind_intr_ctxt_entries)[0]);
 	for (i = 0; i < n; i++) {
 		if ((len >= buf_sz) || ((len + DEBGFS_LINE_SZ) >= buf_sz))
 			goto INSUF_BUF_EXIT;
@@ -1903,9 +1991,9 @@ static int dump_s80_hard_intr_context(struct qdma_indirect_intr_ctxt *intr_ctx,
 
 		rv = QDMA_SNPRINTF_S(buf + len, (buf_sz - len), DEBGFS_LINE_SZ,
 			"%-47s %#-10x %u\n",
-			qdma_s80_hard_ind_intr_ctxt_entries[i].name,
-			qdma_s80_hard_ind_intr_ctxt_entries[i].value,
-			qdma_s80_hard_ind_intr_ctxt_entries[i].value);
+			qdma_cpm4_ind_intr_ctxt_entries[i].name,
+			qdma_cpm4_ind_intr_ctxt_entries[i].value,
+			qdma_cpm4_ind_intr_ctxt_entries[i].value);
 		if ((rv < 0) || (rv > DEBGFS_LINE_SZ)) {
 			qdma_log_error(
 				"%d:%s QDMA_SNPRINTF_S() failed, err:%d\n",
@@ -1938,16 +2026,16 @@ INSUF_BUF_EXIT:
 }
 
 /*
- * qdma_s80_hard_indirect_reg_invalidate() - helper function to invalidate
+ * qdma_cpm4_indirect_reg_invalidate() - helper function to invalidate
  * indirect context registers.
  *
  * return -QDMA_ERR_HWACC_BUSY_TIMEOUT if register
  *	value didn't match, QDMA_SUCCESS other wise
  */
-static int qdma_s80_hard_indirect_reg_invalidate(void *dev_hndl,
+static int qdma_cpm4_indirect_reg_invalidate(void *dev_hndl,
 		enum ind_ctxt_cmd_sel sel, uint16_t hw_qid)
 {
-	union qdma_s80_hard_ind_ctxt_cmd cmd;
+	union qdma_cpm4_ind_ctxt_cmd cmd;
 
 	qdma_reg_access_lock(dev_hndl);
 
@@ -1956,10 +2044,10 @@ static int qdma_s80_hard_indirect_reg_invalidate(void *dev_hndl,
 	cmd.bits.qid = hw_qid;
 	cmd.bits.op = QDMA_CTXT_CMD_INV;
 	cmd.bits.sel = sel;
-	qdma_reg_write(dev_hndl, QDMA_S80_HARD_IND_CTXT_CMD_ADDR, cmd.word);
+	qdma_reg_write(dev_hndl, QDMA_CPM4_IND_CTXT_CMD_ADDR, cmd.word);
 
 	/* check if the operation went through well */
-	if (hw_monitor_reg(dev_hndl, QDMA_S80_HARD_IND_CTXT_CMD_ADDR,
+	if (hw_monitor_reg(dev_hndl, QDMA_CPM4_IND_CTXT_CMD_ADDR,
 			IND_CTXT_CMD_BUSY_MASK, 0,
 			QDMA_REG_POLL_DFLT_INTERVAL_US,
 			QDMA_REG_POLL_DFLT_TIMEOUT_US)) {
@@ -1976,16 +2064,16 @@ static int qdma_s80_hard_indirect_reg_invalidate(void *dev_hndl,
 }
 
 /*
- * qdma_s80_hard_indirect_reg_clear() - helper function to clear indirect
+ * qdma_cpm4_indirect_reg_clear() - helper function to clear indirect
  *				context registers.
  *
  * return -QDMA_ERR_HWACC_BUSY_TIMEOUT if register
  *	value didn't match, QDMA_SUCCESS other wise
  */
-static int qdma_s80_hard_indirect_reg_clear(void *dev_hndl,
+static int qdma_cpm4_indirect_reg_clear(void *dev_hndl,
 		enum ind_ctxt_cmd_sel sel, uint16_t hw_qid)
 {
-	union qdma_s80_hard_ind_ctxt_cmd cmd;
+	union qdma_cpm4_ind_ctxt_cmd cmd;
 
 	qdma_reg_access_lock(dev_hndl);
 
@@ -1995,10 +2083,10 @@ static int qdma_s80_hard_indirect_reg_clear(void *dev_hndl,
 	cmd.bits.op = QDMA_CTXT_CMD_CLR;
 	cmd.bits.sel = sel;
 
-	qdma_reg_write(dev_hndl, QDMA_S80_HARD_IND_CTXT_CMD_ADDR, cmd.word);
+	qdma_reg_write(dev_hndl, QDMA_CPM4_IND_CTXT_CMD_ADDR, cmd.word);
 
 	/* check if the operation went through well */
-	if (hw_monitor_reg(dev_hndl, QDMA_S80_HARD_IND_CTXT_CMD_ADDR,
+	if (hw_monitor_reg(dev_hndl, QDMA_CPM4_IND_CTXT_CMD_ADDR,
 			IND_CTXT_CMD_BUSY_MASK, 0,
 			QDMA_REG_POLL_DFLT_INTERVAL_US,
 			QDMA_REG_POLL_DFLT_TIMEOUT_US)) {
@@ -2015,18 +2103,18 @@ static int qdma_s80_hard_indirect_reg_clear(void *dev_hndl,
 }
 
 /*
- * qdma_s80_hard_indirect_reg_read() - helper function to read indirect
+ * qdma_cpm4_indirect_reg_read() - helper function to read indirect
  *				context registers.
  *
  * return -QDMA_ERR_HWACC_BUSY_TIMEOUT if register
  *	value didn't match, QDMA_SUCCESS other wise
  */
-static int qdma_s80_hard_indirect_reg_read(void *dev_hndl,
+static int qdma_cpm4_indirect_reg_read(void *dev_hndl,
 		enum ind_ctxt_cmd_sel sel,
 		uint16_t hw_qid, uint32_t cnt, uint32_t *data)
 {
-	uint32_t index = 0, reg_addr = QDMA_S80_HARD_IND_CTXT_DATA_3_ADDR;
-	union qdma_s80_hard_ind_ctxt_cmd cmd;
+	uint32_t index = 0, reg_addr = QDMA_CPM4_IND_CTXT_DATA_3_ADDR;
+	union qdma_cpm4_ind_ctxt_cmd cmd;
 
 	qdma_reg_access_lock(dev_hndl);
 
@@ -2035,10 +2123,10 @@ static int qdma_s80_hard_indirect_reg_read(void *dev_hndl,
 	cmd.bits.qid = hw_qid;
 	cmd.bits.op = QDMA_CTXT_CMD_RD;
 	cmd.bits.sel = sel;
-	qdma_reg_write(dev_hndl, QDMA_S80_HARD_IND_CTXT_CMD_ADDR, cmd.word);
+	qdma_reg_write(dev_hndl, QDMA_CPM4_IND_CTXT_CMD_ADDR, cmd.word);
 
 	/* check if the operation went through well */
-	if (hw_monitor_reg(dev_hndl, QDMA_S80_HARD_IND_CTXT_CMD_ADDR,
+	if (hw_monitor_reg(dev_hndl, QDMA_CPM4_IND_CTXT_CMD_ADDR,
 			IND_CTXT_CMD_BUSY_MASK, 0,
 			QDMA_REG_POLL_DFLT_INTERVAL_US,
 			QDMA_REG_POLL_DFLT_TIMEOUT_US)) {
@@ -2058,24 +2146,24 @@ static int qdma_s80_hard_indirect_reg_read(void *dev_hndl,
 }
 
 /*
- * qdma_s80_hard_indirect_reg_write() - helper function to write indirect
+ * qdma_cpm4_indirect_reg_write() - helper function to write indirect
  *				context registers.
  *
  * return -QDMA_ERR_HWACC_BUSY_TIMEOUT if register
  *	value didn't match, QDMA_SUCCESS other wise
  */
-static int qdma_s80_hard_indirect_reg_write(void *dev_hndl,
+static int qdma_cpm4_indirect_reg_write(void *dev_hndl,
 		enum ind_ctxt_cmd_sel sel,
 		uint16_t hw_qid, uint32_t *data, uint16_t cnt)
 {
 	uint32_t index, reg_addr;
-	struct qdma_s80_hard_indirect_ctxt_regs regs;
+	struct qdma_cpm4_indirect_ctxt_regs regs;
 	uint32_t *wr_data = (uint32_t *)&regs;
 
 	qdma_reg_access_lock(dev_hndl);
 
 	/* write the context data */
-	for (index = 0; index < QDMA_S80_HARD_IND_CTXT_DATA_NUM_REGS;
+	for (index = 0; index < QDMA_CPM4_IND_CTXT_DATA_NUM_REGS;
 			index++) {
 		if (index < cnt)
 			regs.qdma_ind_ctxt_data[index] = data[index];
@@ -2088,15 +2176,15 @@ static int qdma_s80_hard_indirect_reg_write(void *dev_hndl,
 	regs.cmd.bits.qid = hw_qid;
 	regs.cmd.bits.op = QDMA_CTXT_CMD_WR;
 	regs.cmd.bits.sel = sel;
-	reg_addr = QDMA_S80_HARD_IND_CTXT_DATA_3_ADDR;
+	reg_addr = QDMA_CPM4_IND_CTXT_DATA_3_ADDR;
 
 	for (index = 0;
-		index < ((2 * QDMA_S80_HARD_IND_CTXT_DATA_NUM_REGS) + 1);
+		index < ((2 * QDMA_CPM4_IND_CTXT_DATA_NUM_REGS) + 1);
 			index++, reg_addr += sizeof(uint32_t))
 		qdma_reg_write(dev_hndl, reg_addr, wr_data[index]);
 
 	/* check if the operation went through well */
-	if (hw_monitor_reg(dev_hndl, QDMA_S80_HARD_IND_CTXT_CMD_ADDR,
+	if (hw_monitor_reg(dev_hndl, QDMA_CPM4_IND_CTXT_CMD_ADDR,
 			IND_CTXT_CMD_BUSY_MASK, 0,
 			QDMA_REG_POLL_DFLT_INTERVAL_US,
 			QDMA_REG_POLL_DFLT_TIMEOUT_US)) {
@@ -2114,7 +2202,7 @@ static int qdma_s80_hard_indirect_reg_write(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_qid2vec_write() - create qid2vec context and program it
+ * qdma_cpm4_qid2vec_write() - create qid2vec context and program it
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -2123,7 +2211,7 @@ static int qdma_s80_hard_indirect_reg_write(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_qid2vec_write(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_qid2vec_write(void *dev_hndl, uint8_t c2h,
 		uint16_t hw_qid, struct qdma_qid2vec *ctxt)
 {
 	uint32_t qid2vec = 0;
@@ -2136,13 +2224,13 @@ static int qdma_s80_hard_qid2vec_write(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_indirect_reg_read(dev_hndl, sel, hw_qid,
+	rv = qdma_cpm4_indirect_reg_read(dev_hndl, sel, hw_qid,
 			1, &qid2vec);
 	if (rv < 0)
 		return rv;
 	if (c2h) {
-		qid2vec = qid2vec & (QDMA_S80_HARD_QID2VEC_H2C_VECTOR |
-					QDMA_S80_HARD_QID2VEC_H2C_COAL_EN);
+		qid2vec = qid2vec & (QDMA_CPM4_QID2VEC_H2C_VECTOR |
+					QDMA_CPM4_QID2VEC_H2C_COAL_EN);
 		qid2vec |= FIELD_SET(C2H_QID2VEC_MAP_C2H_VECTOR_MASK,
 				     ctxt->c2h_vector) |
 			FIELD_SET(C2H_QID2VEC_MAP_C2H_EN_COAL_MASK,
@@ -2151,20 +2239,20 @@ static int qdma_s80_hard_qid2vec_write(void *dev_hndl, uint8_t c2h,
 		qid2vec = qid2vec & (C2H_QID2VEC_MAP_C2H_VECTOR_MASK |
 					C2H_QID2VEC_MAP_C2H_EN_COAL_MASK);
 		qid2vec |=
-			FIELD_SET(QDMA_S80_HARD_QID2VEC_H2C_VECTOR,
+			FIELD_SET(QDMA_CPM4_QID2VEC_H2C_VECTOR,
 				  ctxt->h2c_vector) |
-			FIELD_SET(QDMA_S80_HARD_QID2VEC_H2C_COAL_EN,
+			FIELD_SET(QDMA_CPM4_QID2VEC_H2C_COAL_EN,
 				  ctxt->h2c_en_coal);
 	}
 
-	return qdma_s80_hard_indirect_reg_write(dev_hndl, sel, hw_qid,
-			&qid2vec, QDMA_S80_HARD_QID2VEC_CONTEXT_NUM_WORDS);
+	return qdma_cpm4_indirect_reg_write(dev_hndl, sel, hw_qid,
+			&qid2vec, QDMA_CPM4_QID2VEC_CONTEXT_NUM_WORDS);
 
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_qid2vec_read() - read qid2vec context
+ * qdma_cpm4_qid2vec_read() - read qid2vec context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -2173,11 +2261,11 @@ static int qdma_s80_hard_qid2vec_write(void *dev_hndl, uint8_t c2h,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_qid2vec_read(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_qid2vec_read(void *dev_hndl, uint8_t c2h,
 		uint16_t hw_qid, struct qdma_qid2vec *ctxt)
 {
 	int rv = 0;
-	uint32_t qid2vec[QDMA_S80_HARD_QID2VEC_CONTEXT_NUM_WORDS] = {0};
+	uint32_t qid2vec[QDMA_CPM4_QID2VEC_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_FMAP;
 
 	if (!dev_hndl || !ctxt) {
@@ -2186,8 +2274,8 @@ static int qdma_s80_hard_qid2vec_read(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_indirect_reg_read(dev_hndl, sel, hw_qid,
-			QDMA_S80_HARD_QID2VEC_CONTEXT_NUM_WORDS, qid2vec);
+	rv = qdma_cpm4_indirect_reg_read(dev_hndl, sel, hw_qid,
+			QDMA_CPM4_QID2VEC_CONTEXT_NUM_WORDS, qid2vec);
 	if (rv < 0)
 		return rv;
 
@@ -2199,10 +2287,10 @@ static int qdma_s80_hard_qid2vec_read(void *dev_hndl, uint8_t c2h,
 						qid2vec[0]));
 	} else {
 		ctxt->h2c_vector =
-			(uint8_t)(FIELD_GET(QDMA_S80_HARD_QID2VEC_H2C_VECTOR,
+			(uint8_t)(FIELD_GET(QDMA_CPM4_QID2VEC_H2C_VECTOR,
 								qid2vec[0]));
 		ctxt->h2c_en_coal =
-			(uint8_t)(FIELD_GET(QDMA_S80_HARD_QID2VEC_H2C_COAL_EN,
+			(uint8_t)(FIELD_GET(QDMA_CPM4_QID2VEC_H2C_COAL_EN,
 								qid2vec[0]));
 	}
 
@@ -2211,14 +2299,14 @@ static int qdma_s80_hard_qid2vec_read(void *dev_hndl, uint8_t c2h,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_qid2vec_clear() - clear qid2vec context
+ * qdma_cpm4_qid2vec_clear() - clear qid2vec context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_qid2vec_clear(void *dev_hndl, uint16_t hw_qid)
+static int qdma_cpm4_qid2vec_clear(void *dev_hndl, uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_FMAP;
 
@@ -2228,19 +2316,19 @@ static int qdma_s80_hard_qid2vec_clear(void *dev_hndl, uint16_t hw_qid)
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_clear(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_clear(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_qid2vec_invalidate() - invalidate qid2vec context
+ * qdma_cpm4_qid2vec_invalidate() - invalidate qid2vec context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_qid2vec_invalidate(void *dev_hndl, uint16_t hw_qid)
+static int qdma_cpm4_qid2vec_invalidate(void *dev_hndl, uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_FMAP;
 
@@ -2250,12 +2338,12 @@ static int qdma_s80_hard_qid2vec_invalidate(void *dev_hndl, uint16_t hw_qid)
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_qid2vec_conf() - configure qid2vector context
+ * qdma_cpm4_qid2vec_conf() - configure qid2vector context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -2265,7 +2353,7 @@ static int qdma_s80_hard_qid2vec_invalidate(void *dev_hndl, uint16_t hw_qid)
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_qid2vec_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
+int qdma_cpm4_qid2vec_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 			 struct qdma_qid2vec *ctxt,
 			 enum qdma_hw_access_type access_type)
 {
@@ -2273,18 +2361,18 @@ int qdma_s80_hard_qid2vec_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
-		ret_val = qdma_s80_hard_qid2vec_read(dev_hndl, c2h,
+		ret_val = qdma_cpm4_qid2vec_read(dev_hndl, c2h,
 				hw_qid, ctxt);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
-		ret_val = qdma_s80_hard_qid2vec_write(dev_hndl, c2h,
+		ret_val = qdma_cpm4_qid2vec_write(dev_hndl, c2h,
 				hw_qid, ctxt);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
-		ret_val = qdma_s80_hard_qid2vec_clear(dev_hndl, hw_qid);
+		ret_val = qdma_cpm4_qid2vec_clear(dev_hndl, hw_qid);
 		break;
 	case QDMA_HW_ACCESS_INVALIDATE:
-		ret_val = qdma_s80_hard_qid2vec_invalidate(dev_hndl, hw_qid);
+		ret_val = qdma_cpm4_qid2vec_invalidate(dev_hndl, hw_qid);
 		break;
 	default:
 		qdma_log_error("%s: access_type=%d is invalid, err:%d\n",
@@ -2299,7 +2387,7 @@ int qdma_s80_hard_qid2vec_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_fmap_write() - create fmap context and program it
+ * qdma_cpm4_fmap_write() - create fmap context and program it
  *
  * @dev_hndl:	device handle
  * @func_id:	function id of the device
@@ -2307,7 +2395,7 @@ int qdma_s80_hard_qid2vec_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_fmap_write(void *dev_hndl, uint16_t func_id,
+static int qdma_cpm4_fmap_write(void *dev_hndl, uint16_t func_id,
 		   const struct qdma_fmap_cfg *config)
 {
 	uint32_t fmap = 0;
@@ -2322,15 +2410,15 @@ static int qdma_s80_hard_fmap_write(void *dev_hndl, uint16_t func_id,
 		FIELD_SET(TRQ_SEL_FMAP_0_QID_MAX_MASK,
 				config->qmax);
 
-	qdma_reg_write(dev_hndl, QDMA_S80_HARD_TRQ_SEL_FMAP_0_ADDR +
-			func_id * QDMA_S80_HARD_REG_TRQ_SEL_FMAP_STEP,
+	qdma_reg_write(dev_hndl, QDMA_CPM4_TRQ_SEL_FMAP_0_ADDR +
+			func_id * QDMA_CPM4_REG_TRQ_SEL_FMAP_STEP,
 			fmap);
 	return QDMA_SUCCESS;
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_fmap_read() - read fmap context
+ * qdma_cpm4_fmap_read() - read fmap context
  *
  * @dev_hndl:	device handle
  * @func_id:	function id of the device
@@ -2338,7 +2426,7 @@ static int qdma_s80_hard_fmap_write(void *dev_hndl, uint16_t func_id,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_fmap_read(void *dev_hndl, uint16_t func_id,
+static int qdma_cpm4_fmap_read(void *dev_hndl, uint16_t func_id,
 			 struct qdma_fmap_cfg *config)
 {
 	uint32_t fmap = 0;
@@ -2350,8 +2438,8 @@ static int qdma_s80_hard_fmap_read(void *dev_hndl, uint16_t func_id,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	fmap = qdma_reg_read(dev_hndl, QDMA_S80_HARD_TRQ_SEL_FMAP_0_ADDR +
-			     func_id * QDMA_S80_HARD_REG_TRQ_SEL_FMAP_STEP);
+	fmap = qdma_reg_read(dev_hndl, QDMA_CPM4_TRQ_SEL_FMAP_0_ADDR +
+			     func_id * QDMA_CPM4_REG_TRQ_SEL_FMAP_STEP);
 
 	config->qbase = FIELD_GET(TRQ_SEL_FMAP_0_QID_BASE_MASK, fmap);
 	config->qmax =
@@ -2363,14 +2451,14 @@ static int qdma_s80_hard_fmap_read(void *dev_hndl, uint16_t func_id,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_fmap_clear() - clear fmap context
+ * qdma_cpm4_fmap_clear() - clear fmap context
  *
  * @dev_hndl:	device handle
  * @func_id:	function id of the device
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_fmap_clear(void *dev_hndl, uint16_t func_id)
+static int qdma_cpm4_fmap_clear(void *dev_hndl, uint16_t func_id)
 {
 	uint32_t fmap = 0;
 
@@ -2380,8 +2468,8 @@ static int qdma_s80_hard_fmap_clear(void *dev_hndl, uint16_t func_id)
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_reg_write(dev_hndl, QDMA_S80_HARD_TRQ_SEL_FMAP_0_ADDR +
-			func_id * QDMA_S80_HARD_REG_TRQ_SEL_FMAP_STEP,
+	qdma_reg_write(dev_hndl, QDMA_CPM4_TRQ_SEL_FMAP_0_ADDR +
+			func_id * QDMA_CPM4_REG_TRQ_SEL_FMAP_STEP,
 			fmap);
 
 	return QDMA_SUCCESS;
@@ -2389,7 +2477,7 @@ static int qdma_s80_hard_fmap_clear(void *dev_hndl, uint16_t func_id)
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_fmap_conf() - configure fmap context
+ * qdma_cpm4_fmap_conf() - configure fmap context
  *
  * @dev_hndl:	device handle
  * @func_id:	function id of the device
@@ -2399,7 +2487,7 @@ static int qdma_s80_hard_fmap_clear(void *dev_hndl, uint16_t func_id)
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_fmap_conf(void *dev_hndl, uint16_t func_id,
+int qdma_cpm4_fmap_conf(void *dev_hndl, uint16_t func_id,
 				struct qdma_fmap_cfg *config,
 				enum qdma_hw_access_type access_type)
 {
@@ -2407,13 +2495,13 @@ int qdma_s80_hard_fmap_conf(void *dev_hndl, uint16_t func_id,
 
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
-		ret_val = qdma_s80_hard_fmap_read(dev_hndl, func_id, config);
+		ret_val = qdma_cpm4_fmap_read(dev_hndl, func_id, config);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
-		ret_val = qdma_s80_hard_fmap_write(dev_hndl, func_id, config);
+		ret_val = qdma_cpm4_fmap_write(dev_hndl, func_id, config);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
-		ret_val = qdma_s80_hard_fmap_clear(dev_hndl, func_id);
+		ret_val = qdma_cpm4_fmap_clear(dev_hndl, func_id);
 		break;
 	case QDMA_HW_ACCESS_INVALIDATE:
 	default:
@@ -2429,7 +2517,7 @@ int qdma_s80_hard_fmap_conf(void *dev_hndl, uint16_t func_id,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_sw_context_write() - create sw context and program it
+ * qdma_cpm4_sw_context_write() - create sw context and program it
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -2438,11 +2526,11 @@ int qdma_s80_hard_fmap_conf(void *dev_hndl, uint16_t func_id,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_sw_context_write(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_sw_context_write(void *dev_hndl, uint8_t c2h,
 			 uint16_t hw_qid,
 			 const struct qdma_descq_sw_ctxt *ctxt)
 {
-	uint32_t sw_ctxt[QDMA_S80_HARD_SW_CONTEXT_NUM_WORDS] = {0};
+	uint32_t sw_ctxt[QDMA_CPM4_SW_CONTEXT_NUM_WORDS] = {0};
 	uint16_t num_words_count = 0;
 	enum ind_ctxt_cmd_sel sel = c2h ?
 			QDMA_CTXT_SEL_SW_C2H : QDMA_CTXT_SEL_SW_H2C;
@@ -2494,13 +2582,13 @@ static int qdma_s80_hard_sw_context_write(void *dev_hndl, uint8_t c2h,
 	sw_ctxt[num_words_count++] = ctxt->ring_bs_addr & 0xffffffff;
 	sw_ctxt[num_words_count++] = (ctxt->ring_bs_addr >> 32) & 0xffffffff;
 
-	return qdma_s80_hard_indirect_reg_write(dev_hndl, sel, hw_qid,
+	return qdma_cpm4_indirect_reg_write(dev_hndl, sel, hw_qid,
 			sw_ctxt, num_words_count);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_sw_context_read() - read sw context
+ * qdma_cpm4_sw_context_read() - read sw context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -2509,12 +2597,12 @@ static int qdma_s80_hard_sw_context_write(void *dev_hndl, uint8_t c2h,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_sw_context_read(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_sw_context_read(void *dev_hndl, uint8_t c2h,
 			 uint16_t hw_qid,
 			 struct qdma_descq_sw_ctxt *ctxt)
 {
 	int rv = 0;
-	uint32_t sw_ctxt[QDMA_S80_HARD_SW_CONTEXT_NUM_WORDS] = {0};
+	uint32_t sw_ctxt[QDMA_CPM4_SW_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = c2h ?
 			QDMA_CTXT_SEL_SW_C2H : QDMA_CTXT_SEL_SW_H2C;
 	struct qdma_qid2vec qid2vec_ctxt = {0};
@@ -2526,8 +2614,8 @@ static int qdma_s80_hard_sw_context_read(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_indirect_reg_read(dev_hndl, sel, hw_qid,
-			QDMA_S80_HARD_SW_CONTEXT_NUM_WORDS, sw_ctxt);
+	rv = qdma_cpm4_indirect_reg_read(dev_hndl, sel, hw_qid,
+			QDMA_CPM4_SW_CONTEXT_NUM_WORDS, sw_ctxt);
 	if (rv < 0)
 		return rv;
 
@@ -2589,7 +2677,7 @@ static int qdma_s80_hard_sw_context_read(void *dev_hndl, uint8_t c2h,
 	ctxt->ring_bs_addr = ((uint64_t)sw_ctxt[3] << 32) | (sw_ctxt[2]);
 
 	/** Read the QID2VEC Context Data */
-	rv = qdma_s80_hard_qid2vec_read(dev_hndl, c2h, hw_qid, &qid2vec_ctxt);
+	rv = qdma_cpm4_qid2vec_read(dev_hndl, c2h, hw_qid, &qid2vec_ctxt);
 	if (rv < 0)
 		return rv;
 
@@ -2607,7 +2695,7 @@ static int qdma_s80_hard_sw_context_read(void *dev_hndl, uint8_t c2h,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_sw_context_clear() - clear sw context
+ * qdma_cpm4_sw_context_clear() - clear sw context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -2615,7 +2703,7 @@ static int qdma_s80_hard_sw_context_read(void *dev_hndl, uint8_t c2h,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_sw_context_clear(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_sw_context_clear(void *dev_hndl, uint8_t c2h,
 			  uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = c2h ?
@@ -2627,12 +2715,12 @@ static int qdma_s80_hard_sw_context_clear(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_clear(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_clear(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_sw_context_invalidate() - invalidate sw context
+ * qdma_cpm4_sw_context_invalidate() - invalidate sw context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -2640,7 +2728,7 @@ static int qdma_s80_hard_sw_context_clear(void *dev_hndl, uint8_t c2h,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_sw_context_invalidate(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_sw_context_invalidate(void *dev_hndl, uint8_t c2h,
 		uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = c2h ?
@@ -2652,12 +2740,12 @@ static int qdma_s80_hard_sw_context_invalidate(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_sw_ctx_conf() - configure SW context
+ * qdma_cpm4_sw_ctx_conf() - configure SW context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -2667,7 +2755,7 @@ static int qdma_s80_hard_sw_context_invalidate(void *dev_hndl, uint8_t c2h,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_sw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
+int qdma_cpm4_sw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 				struct qdma_descq_sw_ctxt *ctxt,
 				enum qdma_hw_access_type access_type)
 {
@@ -2675,18 +2763,18 @@ int qdma_s80_hard_sw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
-		ret_val = qdma_s80_hard_sw_context_read(dev_hndl, c2h, hw_qid,
+		ret_val = qdma_cpm4_sw_context_read(dev_hndl, c2h, hw_qid,
 				ctxt);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
-		ret_val = qdma_s80_hard_sw_context_write(dev_hndl, c2h, hw_qid,
+		ret_val = qdma_cpm4_sw_context_write(dev_hndl, c2h, hw_qid,
 				ctxt);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
-		ret_val = qdma_s80_hard_sw_context_clear(dev_hndl, c2h, hw_qid);
+		ret_val = qdma_cpm4_sw_context_clear(dev_hndl, c2h, hw_qid);
 		break;
 	case QDMA_HW_ACCESS_INVALIDATE:
-		ret_val = qdma_s80_hard_sw_context_invalidate(dev_hndl,
+		ret_val = qdma_cpm4_sw_context_invalidate(dev_hndl,
 				c2h, hw_qid);
 		break;
 	default:
@@ -2701,7 +2789,7 @@ int qdma_s80_hard_sw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_pfetch_context_write() - create prefetch context and program it
+ * qdma_cpm4_pfetch_context_write() - create prefetch context and program it
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
@@ -2709,10 +2797,10 @@ int qdma_s80_hard_sw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_pfetch_context_write(void *dev_hndl, uint16_t hw_qid,
+static int qdma_cpm4_pfetch_context_write(void *dev_hndl, uint16_t hw_qid,
 		const struct qdma_descq_prefetch_ctxt *ctxt)
 {
-	uint32_t pfetch_ctxt[QDMA_S80_HARD_PFETCH_CONTEXT_NUM_WORDS] = {0};
+	uint32_t pfetch_ctxt[QDMA_CPM4_PFETCH_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_PFTCH;
 	uint32_t sw_crdt_l, sw_crdt_h;
 	uint16_t num_words_count = 0;
@@ -2743,13 +2831,13 @@ static int qdma_s80_hard_pfetch_context_write(void *dev_hndl, uint16_t hw_qid,
 		FIELD_SET(PREFETCH_CTXT_DATA_W1_SW_CRDT_H_MASK, sw_crdt_h) |
 		FIELD_SET(PREFETCH_CTXT_DATA_W1_VALID_MASK, ctxt->valid);
 
-	return qdma_s80_hard_indirect_reg_write(dev_hndl, sel, hw_qid,
+	return qdma_cpm4_indirect_reg_write(dev_hndl, sel, hw_qid,
 			pfetch_ctxt, num_words_count);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_pfetch_context_read() - read prefetch context
+ * qdma_cpm4_pfetch_context_read() - read prefetch context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
@@ -2757,11 +2845,11 @@ static int qdma_s80_hard_pfetch_context_write(void *dev_hndl, uint16_t hw_qid,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_pfetch_context_read(void *dev_hndl, uint16_t hw_qid,
+static int qdma_cpm4_pfetch_context_read(void *dev_hndl, uint16_t hw_qid,
 		struct qdma_descq_prefetch_ctxt *ctxt)
 {
 	int rv = 0;
-	uint32_t pfetch_ctxt[QDMA_S80_HARD_PFETCH_CONTEXT_NUM_WORDS] = {0};
+	uint32_t pfetch_ctxt[QDMA_CPM4_PFETCH_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_PFTCH;
 	uint32_t sw_crdt_l, sw_crdt_h;
 
@@ -2772,8 +2860,8 @@ static int qdma_s80_hard_pfetch_context_read(void *dev_hndl, uint16_t hw_qid,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_indirect_reg_read(dev_hndl, sel, hw_qid,
-			QDMA_S80_HARD_PFETCH_CONTEXT_NUM_WORDS, pfetch_ctxt);
+	rv = qdma_cpm4_indirect_reg_read(dev_hndl, sel, hw_qid,
+			QDMA_CPM4_PFETCH_CONTEXT_NUM_WORDS, pfetch_ctxt);
 	if (rv < 0)
 		return rv;
 
@@ -2816,14 +2904,14 @@ static int qdma_s80_hard_pfetch_context_read(void *dev_hndl, uint16_t hw_qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_pfetch_context_clear() - clear prefetch context
+ * qdma_cpm4_pfetch_context_clear() - clear prefetch context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_pfetch_context_clear(void *dev_hndl, uint16_t hw_qid)
+static int qdma_cpm4_pfetch_context_clear(void *dev_hndl, uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_PFTCH;
 
@@ -2833,19 +2921,19 @@ static int qdma_s80_hard_pfetch_context_clear(void *dev_hndl, uint16_t hw_qid)
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_clear(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_clear(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_pfetch_context_invalidate() - invalidate prefetch context
+ * qdma_cpm4_pfetch_context_invalidate() - invalidate prefetch context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_pfetch_context_invalidate(void *dev_hndl,
+static int qdma_cpm4_pfetch_context_invalidate(void *dev_hndl,
 		uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_PFTCH;
@@ -2856,12 +2944,12 @@ static int qdma_s80_hard_pfetch_context_invalidate(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_pfetch_ctx_conf() - configure prefetch context
+ * qdma_cpm4_pfetch_ctx_conf() - configure prefetch context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
@@ -2870,7 +2958,7 @@ static int qdma_s80_hard_pfetch_context_invalidate(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_pfetch_ctx_conf(void *dev_hndl, uint16_t hw_qid,
+int qdma_cpm4_pfetch_ctx_conf(void *dev_hndl, uint16_t hw_qid,
 				struct qdma_descq_prefetch_ctxt *ctxt,
 				enum qdma_hw_access_type access_type)
 {
@@ -2878,18 +2966,18 @@ int qdma_s80_hard_pfetch_ctx_conf(void *dev_hndl, uint16_t hw_qid,
 
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
-		ret_val = qdma_s80_hard_pfetch_context_read(dev_hndl,
+		ret_val = qdma_cpm4_pfetch_context_read(dev_hndl,
 				hw_qid, ctxt);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
-		ret_val = qdma_s80_hard_pfetch_context_write(dev_hndl,
+		ret_val = qdma_cpm4_pfetch_context_write(dev_hndl,
 				hw_qid, ctxt);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
-		ret_val = qdma_s80_hard_pfetch_context_clear(dev_hndl, hw_qid);
+		ret_val = qdma_cpm4_pfetch_context_clear(dev_hndl, hw_qid);
 		break;
 	case QDMA_HW_ACCESS_INVALIDATE:
-		ret_val = qdma_s80_hard_pfetch_context_invalidate(dev_hndl,
+		ret_val = qdma_cpm4_pfetch_context_invalidate(dev_hndl,
 				hw_qid);
 		break;
 	default:
@@ -2905,7 +2993,7 @@ int qdma_s80_hard_pfetch_ctx_conf(void *dev_hndl, uint16_t hw_qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_cmpt_context_write() - create completion context and program it
+ * qdma_cpm4_cmpt_context_write() - create completion context and program it
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
@@ -2913,10 +3001,10 @@ int qdma_s80_hard_pfetch_ctx_conf(void *dev_hndl, uint16_t hw_qid,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_cmpt_context_write(void *dev_hndl, uint16_t hw_qid,
+static int qdma_cpm4_cmpt_context_write(void *dev_hndl, uint16_t hw_qid,
 			   const struct qdma_descq_cmpt_ctxt *ctxt)
 {
-	uint32_t cmpt_ctxt[QDMA_S80_HARD_CMPT_CONTEXT_NUM_WORDS] = {0};
+	uint32_t cmpt_ctxt[QDMA_CPM4_CMPT_CONTEXT_NUM_WORDS] = {0};
 	uint16_t num_words_count = 0;
 	uint32_t baddr_l, baddr_h, baddr_m, pidx_l, pidx_h;
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_CMPT;
@@ -2947,18 +3035,18 @@ static int qdma_s80_hard_cmpt_context_write(void *dev_hndl, uint16_t hw_qid,
 	}
 
 	baddr_l =
-		(uint32_t)FIELD_GET(QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_L_MASK,
+		(uint32_t)FIELD_GET(QDMA_CPM4_COMPL_CTXT_BADDR_GET_L_MASK,
 			ctxt->bs_addr);
 	baddr_m =
-		(uint32_t)FIELD_GET(QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_M_MASK,
+		(uint32_t)FIELD_GET(QDMA_CPM4_COMPL_CTXT_BADDR_GET_M_MASK,
 			ctxt->bs_addr);
 	baddr_h =
-		(uint32_t)FIELD_GET(QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_H_MASK,
+		(uint32_t)FIELD_GET(QDMA_CPM4_COMPL_CTXT_BADDR_GET_H_MASK,
 			ctxt->bs_addr);
 
-	pidx_l = FIELD_GET(QDMA_S80_HARD_COMPL_CTXT_PIDX_GET_L_MASK,
+	pidx_l = FIELD_GET(QDMA_CPM4_COMPL_CTXT_PIDX_GET_L_MASK,
 			ctxt->pidx);
-	pidx_h = FIELD_GET(QDMA_S80_HARD_COMPL_CTXT_PIDX_GET_H_MASK,
+	pidx_h = FIELD_GET(QDMA_CPM4_COMPL_CTXT_PIDX_GET_H_MASK,
 			ctxt->pidx);
 
 	cmpt_ctxt[num_words_count++] =
@@ -3005,14 +3093,14 @@ static int qdma_s80_hard_cmpt_context_write(void *dev_hndl, uint16_t hw_qid,
 		FIELD_SET(CMPL_CTXT_DATA_W3_FULL_UPD_MASK,
 				ctxt->full_upd);
 
-	return qdma_s80_hard_indirect_reg_write(dev_hndl, sel, hw_qid,
+	return qdma_cpm4_indirect_reg_write(dev_hndl, sel, hw_qid,
 			cmpt_ctxt, num_words_count);
 
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_cmpt_context_read() - read completion context
+ * qdma_cpm4_cmpt_context_read() - read completion context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
@@ -3020,11 +3108,11 @@ static int qdma_s80_hard_cmpt_context_write(void *dev_hndl, uint16_t hw_qid,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_cmpt_context_read(void *dev_hndl, uint16_t hw_qid,
+static int qdma_cpm4_cmpt_context_read(void *dev_hndl, uint16_t hw_qid,
 			   struct qdma_descq_cmpt_ctxt *ctxt)
 {
 	int rv = 0;
-	uint32_t cmpt_ctxt[QDMA_S80_HARD_CMPT_CONTEXT_NUM_WORDS] = {0};
+	uint32_t cmpt_ctxt[QDMA_CPM4_CMPT_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_CMPT;
 	uint32_t baddr_l, baddr_h, baddr_m,
 			 pidx_l, pidx_h;
@@ -3036,8 +3124,8 @@ static int qdma_s80_hard_cmpt_context_read(void *dev_hndl, uint16_t hw_qid,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_indirect_reg_read(dev_hndl, sel, hw_qid,
-			QDMA_S80_HARD_CMPT_CONTEXT_NUM_WORDS, cmpt_ctxt);
+	rv = qdma_cpm4_indirect_reg_read(dev_hndl, sel, hw_qid,
+			QDMA_CPM4_CMPT_CONTEXT_NUM_WORDS, cmpt_ctxt);
 	if (rv < 0)
 		return rv;
 
@@ -3106,17 +3194,17 @@ static int qdma_s80_hard_cmpt_context_read(void *dev_hndl, uint16_t hw_qid,
 			cmpt_ctxt[3]));
 
 	ctxt->bs_addr =
-		FIELD_SET(QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_L_MASK,
+		FIELD_SET(QDMA_CPM4_COMPL_CTXT_BADDR_GET_L_MASK,
 			(uint64_t)baddr_l) |
-		FIELD_SET(QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_M_MASK,
+		FIELD_SET(QDMA_CPM4_COMPL_CTXT_BADDR_GET_M_MASK,
 			(uint64_t)baddr_m) |
-		FIELD_SET(QDMA_S80_HARD_COMPL_CTXT_BADDR_GET_H_MASK,
+		FIELD_SET(QDMA_CPM4_COMPL_CTXT_BADDR_GET_H_MASK,
 			(uint64_t)baddr_h);
 
 	ctxt->pidx =
-		(uint16_t)(FIELD_SET(QDMA_S80_HARD_COMPL_CTXT_PIDX_GET_L_MASK,
+		(uint16_t)(FIELD_SET(QDMA_CPM4_COMPL_CTXT_PIDX_GET_L_MASK,
 			pidx_l) |
-		FIELD_SET(QDMA_S80_HARD_COMPL_CTXT_PIDX_GET_H_MASK,
+		FIELD_SET(QDMA_CPM4_COMPL_CTXT_PIDX_GET_H_MASK,
 			pidx_h));
 
 	return QDMA_SUCCESS;
@@ -3124,14 +3212,14 @@ static int qdma_s80_hard_cmpt_context_read(void *dev_hndl, uint16_t hw_qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_cmpt_context_clear() - clear completion context
+ * qdma_cpm4_cmpt_context_clear() - clear completion context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_cmpt_context_clear(void *dev_hndl, uint16_t hw_qid)
+static int qdma_cpm4_cmpt_context_clear(void *dev_hndl, uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_CMPT;
 
@@ -3141,19 +3229,19 @@ static int qdma_s80_hard_cmpt_context_clear(void *dev_hndl, uint16_t hw_qid)
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_clear(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_clear(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_cmpt_context_invalidate() - invalidate completion context
+ * qdma_cpm4_cmpt_context_invalidate() - invalidate completion context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_cmpt_context_invalidate(void *dev_hndl,
+static int qdma_cpm4_cmpt_context_invalidate(void *dev_hndl,
 		uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_CMPT;
@@ -3164,12 +3252,12 @@ static int qdma_s80_hard_cmpt_context_invalidate(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_cmpt_ctx_conf() - configure completion context
+ * qdma_cpm4_cmpt_ctx_conf() - configure completion context
  *
  * @dev_hndl:	device handle
  * @hw_qid:	hardware qid of the queue
@@ -3178,7 +3266,7 @@ static int qdma_s80_hard_cmpt_context_invalidate(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_cmpt_ctx_conf(void *dev_hndl, uint16_t hw_qid,
+int qdma_cpm4_cmpt_ctx_conf(void *dev_hndl, uint16_t hw_qid,
 			struct qdma_descq_cmpt_ctxt *ctxt,
 			enum qdma_hw_access_type access_type)
 {
@@ -3192,18 +3280,18 @@ int qdma_s80_hard_cmpt_ctx_conf(void *dev_hndl, uint16_t hw_qid,
 
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
-		ret_val = qdma_s80_hard_cmpt_context_read(dev_hndl,
+		ret_val = qdma_cpm4_cmpt_context_read(dev_hndl,
 				hw_qid, ctxt);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
-		ret_val = qdma_s80_hard_cmpt_context_write(dev_hndl,
+		ret_val = qdma_cpm4_cmpt_context_write(dev_hndl,
 				hw_qid, ctxt);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
-		ret_val = qdma_s80_hard_cmpt_context_clear(dev_hndl, hw_qid);
+		ret_val = qdma_cpm4_cmpt_context_clear(dev_hndl, hw_qid);
 		break;
 	case QDMA_HW_ACCESS_INVALIDATE:
-		ret_val = qdma_s80_hard_cmpt_context_invalidate(dev_hndl,
+		ret_val = qdma_cpm4_cmpt_context_invalidate(dev_hndl,
 				hw_qid);
 		break;
 	default:
@@ -3219,7 +3307,7 @@ int qdma_s80_hard_cmpt_ctx_conf(void *dev_hndl, uint16_t hw_qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_context_read() - read hardware context
+ * qdma_cpm4_hw_context_read() - read hardware context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -3228,11 +3316,11 @@ int qdma_s80_hard_cmpt_ctx_conf(void *dev_hndl, uint16_t hw_qid,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_hw_context_read(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_hw_context_read(void *dev_hndl, uint8_t c2h,
 			 uint16_t hw_qid, struct qdma_descq_hw_ctxt *ctxt)
 {
 	int rv = 0;
-	uint32_t hw_ctxt[QDMA_S80_HARD_HW_CONTEXT_NUM_WORDS] = {0};
+	uint32_t hw_ctxt[QDMA_CPM4_HW_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = c2h ? QDMA_CTXT_SEL_HW_C2H :
 			QDMA_CTXT_SEL_HW_H2C;
 
@@ -3243,8 +3331,8 @@ static int qdma_s80_hard_hw_context_read(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_indirect_reg_read(dev_hndl, sel, hw_qid,
-				   QDMA_S80_HARD_HW_CONTEXT_NUM_WORDS, hw_ctxt);
+	rv = qdma_cpm4_indirect_reg_read(dev_hndl, sel, hw_qid,
+				   QDMA_CPM4_HW_CONTEXT_NUM_WORDS, hw_ctxt);
 	if (rv < 0)
 		return rv;
 
@@ -3268,7 +3356,7 @@ static int qdma_s80_hard_hw_context_read(void *dev_hndl, uint8_t c2h,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_context_clear() - clear hardware context
+ * qdma_cpm4_hw_context_clear() - clear hardware context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -3276,7 +3364,7 @@ static int qdma_s80_hard_hw_context_read(void *dev_hndl, uint8_t c2h,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_hw_context_clear(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_hw_context_clear(void *dev_hndl, uint8_t c2h,
 			  uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = c2h ? QDMA_CTXT_SEL_HW_C2H :
@@ -3288,12 +3376,12 @@ static int qdma_s80_hard_hw_context_clear(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_clear(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_clear(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_context_invalidate() - invalidate hardware context
+ * qdma_cpm4_hw_context_invalidate() - invalidate hardware context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -3301,7 +3389,7 @@ static int qdma_s80_hard_hw_context_clear(void *dev_hndl, uint8_t c2h,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_hw_context_invalidate(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_hw_context_invalidate(void *dev_hndl, uint8_t c2h,
 				   uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = c2h ? QDMA_CTXT_SEL_HW_C2H :
@@ -3313,12 +3401,12 @@ static int qdma_s80_hard_hw_context_invalidate(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_ctx_conf() - configure HW context
+ * qdma_cpm4_hw_ctx_conf() - configure HW context
  *
  * @dev_hndl:	device handle
  * @c2h:	is c2h queue
@@ -3329,7 +3417,7 @@ static int qdma_s80_hard_hw_context_invalidate(void *dev_hndl, uint8_t c2h,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_hw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
+int qdma_cpm4_hw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 				struct qdma_descq_hw_ctxt *ctxt,
 				enum qdma_hw_access_type access_type)
 {
@@ -3337,14 +3425,14 @@ int qdma_s80_hard_hw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
-		ret_val = qdma_s80_hard_hw_context_read(dev_hndl, c2h, hw_qid,
+		ret_val = qdma_cpm4_hw_context_read(dev_hndl, c2h, hw_qid,
 				ctxt);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
-		ret_val = qdma_s80_hard_hw_context_clear(dev_hndl, c2h, hw_qid);
+		ret_val = qdma_cpm4_hw_context_clear(dev_hndl, c2h, hw_qid);
 		break;
 	case QDMA_HW_ACCESS_INVALIDATE:
-		ret_val = qdma_s80_hard_hw_context_invalidate(dev_hndl, c2h,
+		ret_val = qdma_cpm4_hw_context_invalidate(dev_hndl, c2h,
 				hw_qid);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
@@ -3362,7 +3450,7 @@ int qdma_s80_hard_hw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_indirect_intr_context_write() - create indirect
+ * qdma_cpm4_indirect_intr_context_write() - create indirect
  * interrupt context and program it
  *
  * @dev_hndl:   device handle
@@ -3371,10 +3459,10 @@ int qdma_s80_hard_hw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_indirect_intr_context_write(void *dev_hndl,
+static int qdma_cpm4_indirect_intr_context_write(void *dev_hndl,
 		uint16_t ring_index, const struct qdma_indirect_intr_ctxt *ctxt)
 {
-	uint32_t intr_ctxt[QDMA_S80_HARD_IND_INTR_CONTEXT_NUM_WORDS] = {0};
+	uint32_t intr_ctxt[QDMA_CPM4_IND_INTR_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_INT_COAL;
 	uint16_t num_words_count = 0;
 	uint32_t baddr_l, baddr_h;
@@ -3394,10 +3482,10 @@ static int qdma_s80_hard_indirect_intr_context_write(void *dev_hndl,
 	}
 
 	baddr_l =
-		(uint32_t)FIELD_GET(QDMA_S80_HARD_INTR_CTXT_BADDR_GET_L_MASK,
+		(uint32_t)FIELD_GET(QDMA_CPM4_INTR_CTXT_BADDR_GET_L_MASK,
 			ctxt->baddr_4k);
 	baddr_h =
-		(uint32_t)FIELD_GET(QDMA_S80_HARD_INTR_CTXT_BADDR_GET_H_MASK,
+		(uint32_t)FIELD_GET(QDMA_CPM4_INTR_CTXT_BADDR_GET_H_MASK,
 			ctxt->baddr_4k);
 
 	intr_ctxt[num_words_count++] =
@@ -3416,7 +3504,7 @@ static int qdma_s80_hard_indirect_intr_context_write(void *dev_hndl,
 	intr_ctxt[num_words_count++] =
 		FIELD_SET(INTR_CTXT_DATA_W2_PIDX_MASK, ctxt->pidx);
 
-	return qdma_s80_hard_indirect_reg_write(dev_hndl, sel, ring_index,
+	return qdma_cpm4_indirect_reg_write(dev_hndl, sel, ring_index,
 			intr_ctxt, num_words_count);
 }
 
@@ -3430,11 +3518,11 @@ static int qdma_s80_hard_indirect_intr_context_write(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_indirect_intr_context_read(void *dev_hndl,
+static int qdma_cpm4_indirect_intr_context_read(void *dev_hndl,
 		uint16_t ring_index, struct qdma_indirect_intr_ctxt *ctxt)
 {
 	int rv = 0;
-	uint32_t intr_ctxt[QDMA_S80_HARD_IND_INTR_CONTEXT_NUM_WORDS] = {0};
+	uint32_t intr_ctxt[QDMA_CPM4_IND_INTR_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_INT_COAL;
 	uint64_t baddr_l, baddr_h;
 
@@ -3445,8 +3533,8 @@ static int qdma_s80_hard_indirect_intr_context_read(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_indirect_reg_read(dev_hndl, sel, ring_index,
-			QDMA_S80_HARD_IND_INTR_CONTEXT_NUM_WORDS, intr_ctxt);
+	rv = qdma_cpm4_indirect_reg_read(dev_hndl, sel, ring_index,
+			QDMA_CPM4_IND_INTR_CONTEXT_NUM_WORDS, intr_ctxt);
 	if (rv < 0)
 		return rv;
 
@@ -3470,15 +3558,15 @@ static int qdma_s80_hard_indirect_intr_context_read(void *dev_hndl,
 			intr_ctxt[2]);
 
 	ctxt->baddr_4k =
-		FIELD_SET(QDMA_S80_HARD_INTR_CTXT_BADDR_GET_L_MASK, baddr_l) |
-		FIELD_SET(QDMA_S80_HARD_INTR_CTXT_BADDR_GET_H_MASK, baddr_h);
+		FIELD_SET(QDMA_CPM4_INTR_CTXT_BADDR_GET_L_MASK, baddr_l) |
+		FIELD_SET(QDMA_CPM4_INTR_CTXT_BADDR_GET_H_MASK, baddr_h);
 
 	return QDMA_SUCCESS;
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_indirect_intr_context_clear() - clear indirect
+ * qdma_cpm4_indirect_intr_context_clear() - clear indirect
  * interrupt context
  *
  * @dev_hndl:	device handle
@@ -3486,7 +3574,7 @@ static int qdma_s80_hard_indirect_intr_context_read(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_indirect_intr_context_clear(void *dev_hndl,
+static int qdma_cpm4_indirect_intr_context_clear(void *dev_hndl,
 		uint16_t ring_index)
 {
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_INT_COAL;
@@ -3497,12 +3585,12 @@ static int qdma_s80_hard_indirect_intr_context_clear(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_clear(dev_hndl, sel, ring_index);
+	return qdma_cpm4_indirect_reg_clear(dev_hndl, sel, ring_index);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_indirect_intr_context_invalidate() - invalidate
+ * qdma_cpm4_indirect_intr_context_invalidate() - invalidate
  * indirect interrupt context
  *
  * @dev_hndl:	device handle
@@ -3510,7 +3598,7 @@ static int qdma_s80_hard_indirect_intr_context_clear(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_indirect_intr_context_invalidate(void *dev_hndl,
+static int qdma_cpm4_indirect_intr_context_invalidate(void *dev_hndl,
 					  uint16_t ring_index)
 {
 	enum ind_ctxt_cmd_sel sel = QDMA_CTXT_SEL_INT_COAL;
@@ -3521,12 +3609,12 @@ static int qdma_s80_hard_indirect_intr_context_invalidate(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_invalidate(dev_hndl, sel, ring_index);
+	return qdma_cpm4_indirect_reg_invalidate(dev_hndl, sel, ring_index);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_indirect_intr_ctx_conf() - configure indirect interrupt context
+ * qdma_cpm4_indirect_intr_ctx_conf() - configure indirect interrupt context
  *
  * @dev_hndl:	device handle
  * @ring_index:	indirect interrupt ring index
@@ -3535,7 +3623,7 @@ static int qdma_s80_hard_indirect_intr_context_invalidate(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_indirect_intr_ctx_conf(void *dev_hndl, uint16_t ring_index,
+int qdma_cpm4_indirect_intr_ctx_conf(void *dev_hndl, uint16_t ring_index,
 				struct qdma_indirect_intr_ctxt *ctxt,
 				enum qdma_hw_access_type access_type)
 {
@@ -3543,21 +3631,21 @@ int qdma_s80_hard_indirect_intr_ctx_conf(void *dev_hndl, uint16_t ring_index,
 
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
-		ret_val = qdma_s80_hard_indirect_intr_context_read(dev_hndl,
+		ret_val = qdma_cpm4_indirect_intr_context_read(dev_hndl,
 							      ring_index,
 							      ctxt);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
-		ret_val = qdma_s80_hard_indirect_intr_context_write(dev_hndl,
+		ret_val = qdma_cpm4_indirect_intr_context_write(dev_hndl,
 							       ring_index,
 							       ctxt);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
-		ret_val = qdma_s80_hard_indirect_intr_context_clear(dev_hndl,
+		ret_val = qdma_cpm4_indirect_intr_context_clear(dev_hndl,
 							   ring_index);
 		break;
 	case QDMA_HW_ACCESS_INVALIDATE:
-		ret_val = qdma_s80_hard_indirect_intr_context_invalidate(
+		ret_val = qdma_cpm4_indirect_intr_context_invalidate(
 				dev_hndl, ring_index);
 		break;
 	default:
@@ -3573,7 +3661,7 @@ int qdma_s80_hard_indirect_intr_ctx_conf(void *dev_hndl, uint16_t ring_index,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_set_default_global_csr() - function to set the global
+ * qdma_cpm4_set_default_global_csr() - function to set the global
  *  CSR register to default values. The value can be modified later by using
  *  the set/get csr functions
  *
@@ -3581,7 +3669,7 @@ int qdma_s80_hard_indirect_intr_ctx_conf(void *dev_hndl, uint16_t ring_index,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_set_default_global_csr(void *dev_hndl)
+int qdma_cpm4_set_default_global_csr(void *dev_hndl)
 {
 	/* Default values */
 	uint32_t reg_val = 0;
@@ -3604,22 +3692,22 @@ int qdma_s80_hard_set_default_global_csr(void *dev_hndl)
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	/* Configuring CSR registers */
 	/* Global ring sizes */
-	qdma_write_csr_values(dev_hndl, QDMA_S80_HARD_GLBL_RNG_SZ_1_ADDR, 0,
+	qdma_write_csr_values(dev_hndl, QDMA_CPM4_GLBL_RNG_SZ_1_ADDR, 0,
 					QDMA_NUM_RING_SIZES, rng_sz);
 
 	if (dev_cap.st_en || dev_cap.mm_cmpt_en) {
 		/* Counter thresholds */
 		qdma_write_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_CNT_TH_1_ADDR, 0,
+				QDMA_CPM4_C2H_CNT_TH_1_ADDR, 0,
 				QDMA_NUM_C2H_COUNTERS, cnt_th);
 
 		/* Timer Counters */
 		qdma_write_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_TIMER_CNT_1_ADDR, 0,
+				QDMA_CPM4_C2H_TIMER_CNT_1_ADDR, 0,
 				QDMA_NUM_C2H_TIMERS, tmr_cnt);
 
 
@@ -3630,19 +3718,19 @@ int qdma_s80_hard_set_default_global_csr(void *dev_hndl)
 				  FIELD_SET(GLBL_DSC_CFG_WB_ACC_INT_MASK,
 				  DEFAULT_WRB_INT);
 		qdma_reg_write(dev_hndl,
-				QDMA_S80_HARD_GLBL_DSC_CFG_ADDR, reg_val);
+				QDMA_CPM4_GLBL_DSC_CFG_ADDR, reg_val);
 	}
 
 	if (dev_cap.st_en) {
 		/* Buffer Sizes */
 		qdma_write_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_BUF_SZ_0_ADDR, 0,
+				QDMA_CPM4_C2H_BUF_SZ_0_ADDR, 0,
 				QDMA_NUM_C2H_BUFFER_SIZES, buf_sz);
 
 		/* Prefetch Configuration */
 		reg_val =
 			FIELD_SET(C2H_PFCH_CFG_FL_TH_MASK,
-				DEFAULT_PFCH_STOP_THRESH) |
+				QDMA_CPM4_DEFAULT_PFCH_STOP_THRESH) |
 				FIELD_SET(C2H_PFCH_CFG_NUM_MASK,
 				DEFAULT_PFCH_NUM_ENTRIES_PER_Q) |
 				FIELD_SET(C2H_PFCH_CFG_QCNT_MASK,
@@ -3650,10 +3738,10 @@ int qdma_s80_hard_set_default_global_csr(void *dev_hndl)
 				FIELD_SET(C2H_PFCH_CFG_EVT_QCNT_TH_MASK,
 				DEFAULT_C2H_INTR_TIMER_TICK);
 		qdma_reg_write(dev_hndl,
-				QDMA_S80_HARD_C2H_PFCH_CFG_ADDR, reg_val);
+				QDMA_CPM4_C2H_PFCH_CFG_ADDR, reg_val);
 
 		/* C2H interrupt timer tick */
-		qdma_reg_write(dev_hndl, QDMA_S80_HARD_C2H_INT_TIMER_TICK_ADDR,
+		qdma_reg_write(dev_hndl, QDMA_CPM4_C2H_INT_TIMER_TICK_ADDR,
 						DEFAULT_C2H_INTR_TIMER_TICK);
 
 		/* C2h Completion Coalesce Configuration */
@@ -3665,7 +3753,7 @@ int qdma_s80_hard_set_default_global_csr(void *dev_hndl)
 				FIELD_SET(C2H_WRB_COAL_CFG_MAX_BUF_SZ_MASK,
 				DEFAULT_CMPT_COAL_MAX_BUF_SZ);
 		qdma_reg_write(dev_hndl,
-				QDMA_S80_HARD_C2H_WRB_COAL_CFG_ADDR, reg_val);
+				QDMA_CPM4_C2H_WRB_COAL_CFG_ADDR, reg_val);
 
 #if 0
 		/* H2C throttle Configuration*/
@@ -3683,7 +3771,7 @@ int qdma_s80_hard_set_default_global_csr(void *dev_hndl)
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_queue_pidx_update() - function to update the desc PIDX
+ * qdma_cpm4_queue_pidx_update() - function to update the desc PIDX
  *
  * @dev_hndl:	device handle
  * @is_vf:	Whether PF or VF
@@ -3693,7 +3781,7 @@ int qdma_s80_hard_set_default_global_csr(void *dev_hndl)
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_queue_pidx_update(void *dev_hndl, uint8_t is_vf, uint16_t qid,
+int qdma_cpm4_queue_pidx_update(void *dev_hndl, uint8_t is_vf, uint16_t qid,
 		uint8_t is_c2h, const struct qdma_q_pidx_reg_info *reg_info)
 {
 	uint32_t reg_addr = 0;
@@ -3712,19 +3800,19 @@ int qdma_s80_hard_queue_pidx_update(void *dev_hndl, uint8_t is_vf, uint16_t qid,
 
 	if (!is_vf) {
 		reg_addr = (is_c2h) ?
-			QDMA_S80_HARD_OFFSET_DMAP_SEL_C2H_DSC_PIDX :
-			QDMA_S80_HARD_OFFSET_DMAP_SEL_H2C_DSC_PIDX;
+			QDMA_CPM4_OFFSET_DMAP_SEL_C2H_DSC_PIDX :
+			QDMA_CPM4_OFFSET_DMAP_SEL_H2C_DSC_PIDX;
 	} else {
 		reg_addr = (is_c2h) ?
-			QDMA_S80_HARD_OFFSET_VF_DMAP_SEL_C2H_DSC_PIDX :
-			QDMA_S80_HARD_OFFSET_VF_DMAP_SEL_H2C_DSC_PIDX;
+			QDMA_CPM4_OFFSET_VF_DMAP_SEL_C2H_DSC_PIDX :
+			QDMA_CPM4_OFFSET_VF_DMAP_SEL_H2C_DSC_PIDX;
 	}
 
 	reg_addr += (qid * QDMA_PIDX_STEP);
 
-	reg_val = FIELD_SET(QDMA_S80_HARD_DMA_SEL_DESC_PIDX_MASK,
+	reg_val = FIELD_SET(QDMA_CPM4_DMA_SEL_DESC_PIDX_MASK,
 					reg_info->pidx) |
-			  FIELD_SET(QDMA_S80_HARD_DMA_SEL_IRQ_EN_MASK,
+			  FIELD_SET(QDMA_CPM4_DMA_SEL_IRQ_EN_MASK,
 					reg_info->irq_en);
 
 	qdma_reg_write(dev_hndl, reg_addr, reg_val);
@@ -3734,7 +3822,7 @@ int qdma_s80_hard_queue_pidx_update(void *dev_hndl, uint8_t is_vf, uint16_t qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_queue_cmpt_cidx_update() - function to update the CMPT
+ * qdma_cpm4_queue_cmpt_cidx_update() - function to update the CMPT
  * CIDX update
  *
  * @dev_hndl:	device handle
@@ -3744,12 +3832,12 @@ int qdma_s80_hard_queue_pidx_update(void *dev_hndl, uint8_t is_vf, uint16_t qid,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_queue_cmpt_cidx_update(void *dev_hndl, uint8_t is_vf,
+int qdma_cpm4_queue_cmpt_cidx_update(void *dev_hndl, uint8_t is_vf,
 		uint16_t qid, const struct qdma_q_cmpt_cidx_reg_info *reg_info)
 {
 	uint32_t reg_addr = (is_vf) ?
-		QDMA_S80_HARD_OFFSET_VF_DMAP_SEL_CMPT_CIDX :
-		QDMA_S80_HARD_OFFSET_DMAP_SEL_CMPT_CIDX;
+		QDMA_CPM4_OFFSET_VF_DMAP_SEL_CMPT_CIDX :
+		QDMA_CPM4_OFFSET_DMAP_SEL_CMPT_CIDX;
 	uint32_t reg_val = 0;
 
 	if (!dev_hndl) {
@@ -3768,17 +3856,17 @@ int qdma_s80_hard_queue_cmpt_cidx_update(void *dev_hndl, uint8_t is_vf,
 	reg_addr += (qid * QDMA_CMPT_CIDX_STEP);
 
 	reg_val =
-		FIELD_SET(QDMA_S80_HARD_DMAP_SEL_CMPT_WRB_CIDX_MASK,
+		FIELD_SET(QDMA_CPM4_DMAP_SEL_CMPT_WRB_CIDX_MASK,
 				reg_info->wrb_cidx) |
-		FIELD_SET(QDMA_S80_HARD_DMAP_SEL_CMPT_CNT_THRESH_MASK,
+		FIELD_SET(QDMA_CPM4_DMAP_SEL_CMPT_CNT_THRESH_MASK,
 				reg_info->counter_idx) |
-		FIELD_SET(QDMA_S80_HARD_DMAP_SEL_CMPT_TMR_CNT_MASK,
+		FIELD_SET(QDMA_CPM4_DMAP_SEL_CMPT_TMR_CNT_MASK,
 				reg_info->timer_idx) |
-		FIELD_SET(QDMA_S80_HARD_DMAP_SEL_CMPT_TRG_MODE_MASK,
+		FIELD_SET(QDMA_CPM4_DMAP_SEL_CMPT_TRG_MODE_MASK,
 				reg_info->trig_mode) |
-		FIELD_SET(QDMA_S80_HARD_DMAP_SEL_CMPT_STS_DESC_EN_MASK,
+		FIELD_SET(QDMA_CPM4_DMAP_SEL_CMPT_STS_DESC_EN_MASK,
 				reg_info->wrb_en) |
-		FIELD_SET(QDMA_S80_HARD_DMAP_SEL_CMPT_IRQ_EN_MASK,
+		FIELD_SET(QDMA_CPM4_DMAP_SEL_CMPT_IRQ_EN_MASK,
 				reg_info->irq_en);
 
 	qdma_reg_write(dev_hndl, reg_addr, reg_val);
@@ -3788,7 +3876,7 @@ int qdma_s80_hard_queue_cmpt_cidx_update(void *dev_hndl, uint8_t is_vf,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_queue_intr_cidx_update() - function to update the
+ * qdma_cpm4_queue_intr_cidx_update() - function to update the
  * CMPT CIDX update
  *
  * @dev_hndl:	device handle
@@ -3798,12 +3886,12 @@ int qdma_s80_hard_queue_cmpt_cidx_update(void *dev_hndl, uint8_t is_vf,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_queue_intr_cidx_update(void *dev_hndl, uint8_t is_vf,
+int qdma_cpm4_queue_intr_cidx_update(void *dev_hndl, uint8_t is_vf,
 		uint16_t qid, const struct qdma_intr_cidx_reg_info *reg_info)
 {
 	uint32_t reg_addr = (is_vf) ?
-		QDMA_S80_HARD_OFFSET_VF_DMAP_SEL_INT_CIDX :
-		QDMA_S80_HARD_OFFSET_DMAP_SEL_INT_CIDX;
+		QDMA_CPM4_OFFSET_VF_DMAP_SEL_INT_CIDX :
+		QDMA_CPM4_OFFSET_DMAP_SEL_INT_CIDX;
 	uint32_t reg_val = 0;
 
 	if (!dev_hndl) {
@@ -3821,9 +3909,9 @@ int qdma_s80_hard_queue_intr_cidx_update(void *dev_hndl, uint8_t is_vf,
 	reg_addr += qid * QDMA_INT_CIDX_STEP;
 
 	reg_val =
-		FIELD_SET(QDMA_S80_HARD_DMA_SEL_INT_SW_CIDX_MASK,
+		FIELD_SET(QDMA_CPM4_DMA_SEL_INT_SW_CIDX_MASK,
 			reg_info->sw_cidx) |
-		FIELD_SET(QDMA_S80_HARD_DMA_SEL_INT_RING_IDX_MASK,
+		FIELD_SET(QDMA_CPM4_DMA_SEL_INT_RING_IDX_MASK,
 			reg_info->rng_idx);
 
 	qdma_reg_write(dev_hndl, reg_addr, reg_val);
@@ -3843,7 +3931,7 @@ int qdma_s80_hard_queue_intr_cidx_update(void *dev_hndl, uint8_t is_vf,
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
 int qdma_cmp_get_user_bar(void *dev_hndl, uint8_t is_vf,
-		uint8_t func_id, uint8_t *user_bar)
+		uint16_t func_id, uint8_t *user_bar)
 {
 	uint8_t bar_found = 0;
 	uint8_t bar_idx = 0;
@@ -3862,14 +3950,14 @@ int qdma_cmp_get_user_bar(void *dev_hndl, uint8_t is_vf,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	reg_addr = (is_vf) ? QDMA_S80_HARD_GLBL2_PF_VF_BARLITE_EXT_ADDR :
-			QDMA_S80_HARD_GLBL2_PF_BARLITE_EXT_ADDR;
+	reg_addr = (is_vf) ? QDMA_CPM4_GLBL2_PF_VF_BARLITE_EXT_ADDR :
+			QDMA_CPM4_GLBL2_PF_BARLITE_EXT_ADDR;
 
 	if (!is_vf) {
 		user_bar_id = qdma_reg_read(dev_hndl, reg_addr);
 		user_bar_id = (user_bar_id >> (6 * func_id)) & 0x3F;
 	} else {
-		*user_bar = QDMA_S80_HARD_VF_USER_BAR_ID;
+		*user_bar = QDMA_CPM4_VF_USER_BAR_ID;
 		return QDMA_SUCCESS;
 	}
 
@@ -3893,7 +3981,7 @@ int qdma_cmp_get_user_bar(void *dev_hndl, uint8_t is_vf,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_ram_sbe_err_process() -Function to dump SBE err debug info
+ * qdma_cpm4_hw_ram_sbe_err_process() -Function to dump SBE err debug info
  *
  * @dev_hndl: device handle
  * @buf: Bufffer for the debug info to be dumped in
@@ -3901,15 +3989,15 @@ int qdma_cmp_get_user_bar(void *dev_hndl, uint8_t is_vf,
  *
  * Return: void
  *****************************************************************************/
-static void qdma_s80_hard_hw_ram_sbe_err_process(void *dev_hndl)
+static void qdma_cpm4_hw_ram_sbe_err_process(void *dev_hndl)
 {
-	qdma_s80_hard_dump_reg_info(dev_hndl, QDMA_S80_HARD_RAM_SBE_STS_A_ADDR,
+	qdma_cpm4_dump_reg_info(dev_hndl, QDMA_CPM4_RAM_SBE_STS_A_ADDR,
 						1, NULL, 0);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_ram_dbe_err_process() -Function to dump DBE err debug info
+ * qdma_cpm4_hw_ram_dbe_err_process() -Function to dump DBE err debug info
  *
  * @dev_hndl: device handle
  * @buf: Bufffer for the debug info to be dumped in
@@ -3917,15 +4005,15 @@ static void qdma_s80_hard_hw_ram_sbe_err_process(void *dev_hndl)
  *
  * Return: void
  *****************************************************************************/
-static void qdma_s80_hard_hw_ram_dbe_err_process(void *dev_hndl)
+static void qdma_cpm4_hw_ram_dbe_err_process(void *dev_hndl)
 {
-	qdma_s80_hard_dump_reg_info(dev_hndl, QDMA_S80_HARD_RAM_DBE_STS_A_ADDR,
+	qdma_cpm4_dump_reg_info(dev_hndl, QDMA_CPM4_RAM_DBE_STS_A_ADDR,
 						1, NULL, 0);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_desc_err_process() -Function to dump Descriptor Error info
+ * qdma_cpm4_hw_desc_err_process() -Function to dump Descriptor Error info
  *
  * @dev_hndl: device handle
  * @buf: Bufffer for the debug info to be dumped in
@@ -3933,20 +4021,20 @@ static void qdma_s80_hard_hw_ram_dbe_err_process(void *dev_hndl)
  *
  * Return: void
  *****************************************************************************/
-static void qdma_s80_hard_hw_desc_err_process(void *dev_hndl)
+static void qdma_cpm4_hw_desc_err_process(void *dev_hndl)
 {
 	int i = 0;
 	uint32_t desc_err_reg_list[] = {
-		QDMA_S80_HARD_GLBL_DSC_ERR_STS_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_LOG0_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_ERR_LOG1_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_DBG_DAT0_ADDR,
-		QDMA_S80_HARD_GLBL_DSC_DBG_DAT1_ADDR
+		QDMA_CPM4_GLBL_DSC_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_LOG0_ADDR,
+		QDMA_CPM4_GLBL_DSC_ERR_LOG1_ADDR,
+		QDMA_CPM4_GLBL_DSC_DBG_DAT0_ADDR,
+		QDMA_CPM4_GLBL_DSC_DBG_DAT1_ADDR
 	};
 	int desc_err_num_regs = sizeof(desc_err_reg_list)/sizeof(uint32_t);
 
 	for (i = 0; i < desc_err_num_regs; i++) {
-		qdma_s80_hard_dump_reg_info(dev_hndl,
+		qdma_cpm4_dump_reg_info(dev_hndl,
 					desc_err_reg_list[i],
 					1, NULL, 0);
 	}
@@ -3954,7 +4042,7 @@ static void qdma_s80_hard_hw_desc_err_process(void *dev_hndl)
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_trq_err_process() -Function to dump Target Access Err info
+ * qdma_cpm4_hw_trq_err_process() -Function to dump Target Access Err info
  *
  * @dev_hndl: device handle
  * @buf: Bufffer for the debug info to be dumped in
@@ -3962,17 +4050,17 @@ static void qdma_s80_hard_hw_desc_err_process(void *dev_hndl)
  *
  * Return: void
  *****************************************************************************/
-static void qdma_s80_hard_hw_trq_err_process(void *dev_hndl)
+static void qdma_cpm4_hw_trq_err_process(void *dev_hndl)
 {
 	int i = 0;
 	uint32_t trq_err_reg_list[] = {
-		QDMA_S80_HARD_GLBL_TRQ_ERR_STS_ADDR,
-		QDMA_S80_HARD_GLBL_TRQ_ERR_LOG_ADDR
+		QDMA_CPM4_GLBL_TRQ_ERR_STS_ADDR,
+		QDMA_CPM4_GLBL_TRQ_ERR_LOG_ADDR
 	};
 	int trq_err_reg_num_regs = sizeof(trq_err_reg_list)/sizeof(uint32_t);
 
 	for (i = 0; i < trq_err_reg_num_regs; i++) {
-		qdma_s80_hard_dump_reg_info(dev_hndl, trq_err_reg_list[i],
+		qdma_cpm4_dump_reg_info(dev_hndl, trq_err_reg_list[i],
 					1, NULL, 0);
 	}
 
@@ -3981,7 +4069,7 @@ static void qdma_s80_hard_hw_trq_err_process(void *dev_hndl)
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_st_h2c_err_process() - Function to dump MM H2C Error info
+ * qdma_cpm4_hw_st_h2c_err_process() - Function to dump MM H2C Error info
  *
  * @dev_hndl: device handle
  * @buf: Bufffer for the debug info to be dumped in
@@ -3989,22 +4077,22 @@ static void qdma_s80_hard_hw_trq_err_process(void *dev_hndl)
  *
  * Return: void
  *****************************************************************************/
-static void qdma_s80_hard_hw_st_h2c_err_process(void *dev_hndl)
+static void qdma_cpm4_hw_st_h2c_err_process(void *dev_hndl)
 {
 	int i = 0;
 	uint32_t st_h2c_err_reg_list[] = {
-		QDMA_S80_HARD_H2C_ERR_STAT_ADDR,
-		QDMA_S80_HARD_H2C_FIRST_ERR_QID_ADDR,
-		QDMA_S80_HARD_H2C_DBG_REG0_ADDR,
-		QDMA_S80_HARD_H2C_DBG_REG1_ADDR,
-		QDMA_S80_HARD_H2C_DBG_REG2_ADDR,
-		QDMA_S80_HARD_H2C_DBG_REG3_ADDR,
-		QDMA_S80_HARD_H2C_DBG_REG4_ADDR
+		QDMA_CPM4_H2C_ERR_STAT_ADDR,
+		QDMA_CPM4_H2C_FIRST_ERR_QID_ADDR,
+		QDMA_CPM4_H2C_DBG_REG0_ADDR,
+		QDMA_CPM4_H2C_DBG_REG1_ADDR,
+		QDMA_CPM4_H2C_DBG_REG2_ADDR,
+		QDMA_CPM4_H2C_DBG_REG3_ADDR,
+		QDMA_CPM4_H2C_DBG_REG4_ADDR
 	};
 	int st_h2c_err_num_regs = sizeof(st_h2c_err_reg_list)/sizeof(uint32_t);
 
 	for (i = 0; i < st_h2c_err_num_regs; i++) {
-		qdma_s80_hard_dump_reg_info(dev_hndl,
+		qdma_cpm4_dump_reg_info(dev_hndl,
 					st_h2c_err_reg_list[i],
 					1, NULL, 0);
 	}
@@ -4013,7 +4101,7 @@ static void qdma_s80_hard_hw_st_h2c_err_process(void *dev_hndl)
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_st_c2h_err_process() - Function to dump MM H2C Error info
+ * qdma_cpm4_hw_st_c2h_err_process() - Function to dump MM H2C Error info
  *
  * @dev_hndl: device handle
  * @buf: Bufffer for the debug info to be dumped in
@@ -4021,28 +4109,28 @@ static void qdma_s80_hard_hw_st_h2c_err_process(void *dev_hndl)
  *
  * Return: void
  *****************************************************************************/
-static void qdma_s80_hard_hw_st_c2h_err_process(void *dev_hndl)
+static void qdma_cpm4_hw_st_c2h_err_process(void *dev_hndl)
 {
 	int i = 0;
 	uint32_t st_c2h_err_reg_list[] = {
-		QDMA_S80_HARD_C2H_ERR_STAT_ADDR,
-		QDMA_S80_HARD_C2H_FATAL_ERR_STAT_ADDR,
-		QDMA_S80_HARD_C2H_FIRST_ERR_QID_ADDR,
-		QDMA_S80_HARD_C2H_STAT_S_AXIS_C2H_ACCEPTED_ADDR,
-		QDMA_S80_HARD_C2H_STAT_S_AXIS_WRB_ACCEPTED_ADDR,
-		QDMA_S80_HARD_C2H_STAT_DESC_RSP_PKT_ACCEPTED_ADDR,
-		QDMA_S80_HARD_C2H_STAT_AXIS_PKG_CMP_ADDR,
-		QDMA_S80_HARD_C2H_STAT_DBG_DMA_ENG_0_ADDR,
-		QDMA_S80_HARD_C2H_STAT_DBG_DMA_ENG_1_ADDR,
-		QDMA_S80_HARD_C2H_STAT_DBG_DMA_ENG_2_ADDR,
-		QDMA_S80_HARD_C2H_STAT_DBG_DMA_ENG_3_ADDR,
-		QDMA_S80_HARD_C2H_STAT_DESC_RSP_DROP_ACCEPTED_ADDR,
-		QDMA_S80_HARD_C2H_STAT_DESC_RSP_ERR_ACCEPTED_ADDR
+		QDMA_CPM4_C2H_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FATAL_ERR_STAT_ADDR,
+		QDMA_CPM4_C2H_FIRST_ERR_QID_ADDR,
+		QDMA_CPM4_C2H_STAT_S_AXIS_C2H_ACCEPTED_ADDR,
+		QDMA_CPM4_C2H_STAT_S_AXIS_WRB_ACCEPTED_ADDR,
+		QDMA_CPM4_C2H_STAT_DESC_RSP_PKT_ACCEPTED_ADDR,
+		QDMA_CPM4_C2H_STAT_AXIS_PKG_CMP_ADDR,
+		QDMA_CPM4_C2H_STAT_DBG_DMA_ENG_0_ADDR,
+		QDMA_CPM4_C2H_STAT_DBG_DMA_ENG_1_ADDR,
+		QDMA_CPM4_C2H_STAT_DBG_DMA_ENG_2_ADDR,
+		QDMA_CPM4_C2H_STAT_DBG_DMA_ENG_3_ADDR,
+		QDMA_CPM4_C2H_STAT_DESC_RSP_DROP_ACCEPTED_ADDR,
+		QDMA_CPM4_C2H_STAT_DESC_RSP_ERR_ACCEPTED_ADDR
 	};
 	int st_c2h_err_num_regs = sizeof(st_c2h_err_reg_list)/sizeof(uint32_t);
 
 	for (i = 0; i < st_c2h_err_num_regs; i++) {
-		qdma_s80_hard_dump_reg_info(dev_hndl,
+		qdma_cpm4_dump_reg_info(dev_hndl,
 					st_c2h_err_reg_list[i],
 					1, NULL, 0);
 	}
@@ -4052,28 +4140,28 @@ static void qdma_s80_hard_hw_st_c2h_err_process(void *dev_hndl)
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_get_error_name() - Function to get the error in str format
+ * qdma_cpm4_hw_get_error_name() - Function to get the error in str format
  *
  * @err_idx: error index
  *
  * Return: string - success and NULL on failure
  *****************************************************************************/
-const char *qdma_s80_hard_hw_get_error_name(uint32_t err_idx)
+const char *qdma_cpm4_hw_get_error_name(uint32_t err_idx)
 {
-	if (err_idx >= QDMA_S80_HARD_ERRS_ALL) {
+	if (err_idx >= QDMA_CPM4_ERRS_ALL) {
 		qdma_log_error("%s: err_idx=%d is invalid, returning NULL\n",
 			__func__,
-			(enum qdma_s80_hard_error_idx)err_idx);
+			(enum qdma_cpm4_error_idx)err_idx);
 		return NULL;
 	}
 
-	return qdma_s80_hard_err_info[
-			(enum qdma_s80_hard_error_idx)err_idx].err_name;
+	return qdma_cpm4_err_info[
+			(enum qdma_cpm4_error_idx)err_idx].err_name;
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_hw_error_process() - Function to find the error that got
+ * qdma_cpm4_hw_error_process() - Function to find the error that got
  * triggered and call the handler qdma_hw_error_handler of that
  * particular error.
  *
@@ -4081,20 +4169,20 @@ const char *qdma_s80_hard_hw_get_error_name(uint32_t err_idx)
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_hw_error_process(void *dev_hndl)
+int qdma_cpm4_hw_error_process(void *dev_hndl)
 {
 	uint32_t glbl_err_stat = 0, err_stat = 0;
 	uint32_t i = 0, j = 0;
 	int32_t idx = 0;
 	struct qdma_dev_attributes dev_cap;
-	uint32_t hw_err_position[QDMA_S80_HARD_TOTAL_LEAF_ERROR_AGGREGATORS] = {
-		QDMA_S80_HARD_DSC_ERR_POISON,
-		QDMA_S80_HARD_TRQ_ERR_UNMAPPED,
-		QDMA_S80_HARD_ST_C2H_ERR_MTY_MISMATCH,
-		QDMA_S80_HARD_ST_FATAL_ERR_MTY_MISMATCH,
-		QDMA_S80_HARD_ST_H2C_ERR_ZERO_LEN_DESC_ERR,
-		QDMA_S80_HARD_SBE_ERR_MI_H2C0_DAT,
-		QDMA_S80_HARD_DBE_ERR_MI_H2C0_DAT
+	uint32_t hw_err_position[QDMA_CPM4_TOTAL_LEAF_ERROR_AGGREGATORS] = {
+		QDMA_CPM4_DSC_ERR_POISON,
+		QDMA_CPM4_TRQ_ERR_UNMAPPED,
+		QDMA_CPM4_ST_C2H_ERR_MTY_MISMATCH,
+		QDMA_CPM4_ST_FATAL_ERR_MTY_MISMATCH,
+		QDMA_CPM4_ST_H2C_ERR_ZERO_LEN_DESC_ERR,
+		QDMA_CPM4_SBE_ERR_MI_H2C0_DAT,
+		QDMA_CPM4_DBE_ERR_MI_H2C0_DAT
 	};
 
 	if (!dev_hndl) {
@@ -4104,48 +4192,48 @@ int qdma_s80_hard_hw_error_process(void *dev_hndl)
 	}
 
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	glbl_err_stat = qdma_reg_read(dev_hndl,
-			QDMA_S80_HARD_GLBL_ERR_STAT_ADDR);
+			QDMA_CPM4_GLBL_ERR_STAT_ADDR);
 	if (!glbl_err_stat)
 		return QDMA_HW_ERR_NOT_DETECTED;
 
 	qdma_log_info("%s: Global Err Reg(0x%x) = 0x%x\n",
-				  __func__, QDMA_S80_HARD_GLBL_ERR_STAT_ADDR,
+				  __func__, QDMA_CPM4_GLBL_ERR_STAT_ADDR,
 				  glbl_err_stat);
 
-	for (i = 0; i < QDMA_S80_HARD_TOTAL_LEAF_ERROR_AGGREGATORS; i++) {
+	for (i = 0; i < QDMA_CPM4_TOTAL_LEAF_ERROR_AGGREGATORS; i++) {
 		j = hw_err_position[i];
 
 		if ((!dev_cap.st_en) &&
-			(j == QDMA_S80_HARD_ST_C2H_ERR_MTY_MISMATCH ||
-			j == QDMA_S80_HARD_ST_FATAL_ERR_MTY_MISMATCH ||
-			j == QDMA_S80_HARD_ST_H2C_ERR_ZERO_LEN_DESC_ERR))
+			(j == QDMA_CPM4_ST_C2H_ERR_MTY_MISMATCH ||
+			j == QDMA_CPM4_ST_FATAL_ERR_MTY_MISMATCH ||
+			j == QDMA_CPM4_ST_H2C_ERR_ZERO_LEN_DESC_ERR))
 			continue;
 
 		err_stat = qdma_reg_read(dev_hndl,
-				qdma_s80_hard_err_info[j].stat_reg_addr);
+				qdma_cpm4_err_info[j].stat_reg_addr);
 		if (err_stat) {
 			qdma_log_info("addr = 0x%08x val = 0x%08x",
-				qdma_s80_hard_err_info[j].stat_reg_addr,
+				qdma_cpm4_err_info[j].stat_reg_addr,
 				err_stat);
 
-			qdma_s80_hard_err_info[j].qdma_s80_hard_hw_err_process(
+			qdma_cpm4_err_info[j].qdma_cpm4_hw_err_process(
 				dev_hndl);
 			for (idx = j;
-				idx < all_qdma_s80_hard_hw_errs[i];
+				idx < all_qdma_cpm4_hw_errs[i];
 				idx++) {
 				/* call the platform specific handler */
 				if (err_stat &
-				qdma_s80_hard_err_info[idx].leaf_err_mask)
+				qdma_cpm4_err_info[idx].leaf_err_mask)
 					qdma_log_error("%s detected %s\n",
 						__func__,
-						qdma_s80_hard_hw_get_error_name(
+						qdma_cpm4_hw_get_error_name(
 							idx));
 			}
 			qdma_reg_write(dev_hndl,
-				qdma_s80_hard_err_info[j].stat_reg_addr,
+				qdma_cpm4_err_info[j].stat_reg_addr,
 				err_stat);
 		}
 
@@ -4153,7 +4241,7 @@ int qdma_s80_hard_hw_error_process(void *dev_hndl)
 
 	/* Write 1 to the global status register to clear the bits */
 	qdma_reg_write(dev_hndl,
-			QDMA_S80_HARD_GLBL_ERR_STAT_ADDR, glbl_err_stat);
+			QDMA_CPM4_GLBL_ERR_STAT_ADDR, glbl_err_stat);
 
 	return QDMA_SUCCESS;
 }
@@ -4167,7 +4255,7 @@ int qdma_s80_hard_hw_error_process(void *dev_hndl)
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_hw_error_enable(void *dev_hndl, uint32_t err_idx)
+int qdma_cpm4_hw_error_enable(void *dev_hndl, uint32_t err_idx)
 {
 	uint32_t idx = 0, i = 0;
 	uint32_t reg_val = 0;
@@ -4179,43 +4267,43 @@ int qdma_s80_hard_hw_error_enable(void *dev_hndl, uint32_t err_idx)
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	if (err_idx > QDMA_S80_HARD_ERRS_ALL) {
+	if (err_idx > QDMA_CPM4_ERRS_ALL) {
 		qdma_log_error("%s: err_idx=%d is invalid, err:%d\n",
-				__func__, (enum qdma_s80_hard_error_idx)err_idx,
+				__func__, (enum qdma_cpm4_error_idx)err_idx,
 				-QDMA_ERR_INV_PARAM);
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
-	if (err_idx == QDMA_S80_HARD_ERRS_ALL) {
+	if (err_idx == QDMA_CPM4_ERRS_ALL) {
 		for (i = 0;
-				i < QDMA_S80_HARD_TOTAL_LEAF_ERROR_AGGREGATORS;
+				i < QDMA_CPM4_TOTAL_LEAF_ERROR_AGGREGATORS;
 				i++) {
 
-			idx = all_qdma_s80_hard_hw_errs[i];
+			idx = all_qdma_cpm4_hw_errs[i];
 
 			/* Don't access streaming registers in
 			 * MM only bitstreams
 			 */
 			if (!dev_cap.st_en) {
-				if (idx == QDMA_S80_HARD_ST_C2H_ERR_ALL ||
-					idx == QDMA_S80_HARD_ST_FATAL_ERR_ALL ||
-					idx == QDMA_S80_HARD_ST_H2C_ERR_ALL)
+				if (idx == QDMA_CPM4_ST_C2H_ERR_ALL ||
+					idx == QDMA_CPM4_ST_FATAL_ERR_ALL ||
+					idx == QDMA_CPM4_ST_H2C_ERR_ALL)
 					continue;
 			}
 
-			reg_val = qdma_s80_hard_err_info[idx].leaf_err_mask;
+			reg_val = qdma_cpm4_err_info[idx].leaf_err_mask;
 			qdma_reg_write(dev_hndl,
-				qdma_s80_hard_err_info[idx].mask_reg_addr,
+				qdma_cpm4_err_info[idx].mask_reg_addr,
 					reg_val);
 
 			reg_val = qdma_reg_read(dev_hndl,
-					QDMA_S80_HARD_GLBL_ERR_MASK_ADDR);
+					QDMA_CPM4_GLBL_ERR_MASK_ADDR);
 			reg_val |= FIELD_SET(
-				qdma_s80_hard_err_info[idx].global_err_mask, 1);
+				qdma_cpm4_err_info[idx].global_err_mask, 1);
 			qdma_reg_write(dev_hndl,
-					QDMA_S80_HARD_GLBL_ERR_MASK_ADDR,
+					QDMA_CPM4_GLBL_ERR_MASK_ADDR,
 					reg_val);
 		}
 
@@ -4225,28 +4313,28 @@ int qdma_s80_hard_hw_error_enable(void *dev_hndl, uint32_t err_idx)
 		 *  ST errors
 		 */
 		if (!dev_cap.st_en) {
-			if (err_idx >= QDMA_S80_HARD_ST_C2H_ERR_MTY_MISMATCH &&
-					err_idx <= QDMA_S80_HARD_ST_H2C_ERR_ALL)
+			if (err_idx >= QDMA_CPM4_ST_C2H_ERR_MTY_MISMATCH &&
+					err_idx <= QDMA_CPM4_ST_H2C_ERR_ALL)
 				return QDMA_SUCCESS;
 		}
 
 		reg_val = qdma_reg_read(dev_hndl,
-				qdma_s80_hard_err_info[err_idx].mask_reg_addr);
+				qdma_cpm4_err_info[err_idx].mask_reg_addr);
 		reg_val |=
-			FIELD_SET(qdma_s80_hard_err_info[err_idx].leaf_err_mask,
+			FIELD_SET(qdma_cpm4_err_info[err_idx].leaf_err_mask,
 				1);
 		qdma_reg_write(dev_hndl,
-				qdma_s80_hard_err_info[err_idx].mask_reg_addr,
+				qdma_cpm4_err_info[err_idx].mask_reg_addr,
 						reg_val);
 
 		reg_val = qdma_reg_read(dev_hndl,
-			QDMA_S80_HARD_GLBL_ERR_MASK_ADDR);
+			QDMA_CPM4_GLBL_ERR_MASK_ADDR);
 		reg_val |=
 			FIELD_SET(
-				qdma_s80_hard_err_info[err_idx].global_err_mask,
+				qdma_cpm4_err_info[err_idx].global_err_mask,
 				1);
 		qdma_reg_write(dev_hndl,
-			QDMA_S80_HARD_GLBL_ERR_MASK_ADDR, reg_val);
+			QDMA_CPM4_GLBL_ERR_MASK_ADDR, reg_val);
 	}
 
 	return QDMA_SUCCESS;
@@ -4254,7 +4342,7 @@ int qdma_s80_hard_hw_error_enable(void *dev_hndl, uint32_t err_idx)
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_get_device_attributes() - Function to get the qdma
+ * qdma_cpm4_get_device_attributes() - Function to get the qdma
  * device attributes
  *
  * @dev_hndl:	device handle
@@ -4262,7 +4350,7 @@ int qdma_s80_hard_hw_error_enable(void *dev_hndl, uint32_t err_idx)
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_get_device_attributes(void *dev_hndl,
+int qdma_cpm4_get_device_attributes(void *dev_hndl,
 		struct qdma_dev_attributes *dev_info)
 {
 	uint8_t count = 0;
@@ -4281,7 +4369,7 @@ int qdma_s80_hard_get_device_attributes(void *dev_hndl,
 
 	/* number of PFs */
 	reg_val = qdma_reg_read(dev_hndl,
-		QDMA_S80_HARD_GLBL2_PF_BARLITE_INT_ADDR);
+		QDMA_CPM4_GLBL2_PF_BARLITE_INT_ADDR);
 	if (FIELD_GET(GLBL2_PF_BARLITE_INT_PF0_BAR_MAP_MASK, reg_val))
 		count++;
 	if (FIELD_GET(GLBL2_PF_BARLITE_INT_PF1_BAR_MAP_MASK, reg_val))
@@ -4293,19 +4381,19 @@ int qdma_s80_hard_get_device_attributes(void *dev_hndl,
 	dev_info->num_pfs = count;
 
 	/* Number of Qs */
-	reg_val = qdma_reg_read(dev_hndl, QDMA_S80_HARD_GLBL2_CHANNEL_CAP_ADDR);
+	reg_val = qdma_reg_read(dev_hndl, QDMA_CPM4_GLBL2_CHANNEL_CAP_ADDR);
 	dev_info->num_qs = (FIELD_GET(GLBL2_CHANNEL_CAP_MULTIQ_MAX_MASK,
 			reg_val));
 
 	/* FLR present */
-	reg_val = qdma_reg_read(dev_hndl, QDMA_S80_HARD_GLBL2_MISC_CAP_ADDR);
+	reg_val = qdma_reg_read(dev_hndl, QDMA_CPM4_GLBL2_MISC_CAP_ADDR);
 	dev_info->mailbox_en  = FIELD_GET(QDMA_GLBL2_MAILBOX_EN_MASK, reg_val);
 	dev_info->flr_present = FIELD_GET(QDMA_GLBL2_FLR_PRESENT_MASK, reg_val);
 	dev_info->mm_cmpt_en  = 0;
 
 	/* ST/MM enabled? */
 	reg_val = qdma_reg_read(dev_hndl,
-		QDMA_S80_HARD_GLBL2_CHANNEL_MDMA_ADDR);
+		QDMA_CPM4_GLBL2_CHANNEL_MDMA_ADDR);
 	dev_info->mm_en = (FIELD_GET(GLBL2_CHANNEL_MDMA_C2H_ENG_MASK, reg_val)
 		&& FIELD_GET(GLBL2_CHANNEL_MDMA_H2C_ENG_MASK, reg_val)) ? 1 : 0;
 	dev_info->st_en = (FIELD_GET(GLBL2_CHANNEL_MDMA_C2H_ST_MASK, reg_val)
@@ -4332,7 +4420,7 @@ int qdma_s80_hard_get_device_attributes(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_credit_context_read() - read credit context
+ * qdma_cpm4_credit_context_read() - read credit context
  *
  * @dev_hndl:	device handle
  * @c2h     :	is c2h queue
@@ -4341,12 +4429,12 @@ int qdma_s80_hard_get_device_attributes(void *dev_hndl,
  *
  * Return   :	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_credit_context_read(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_credit_context_read(void *dev_hndl, uint8_t c2h,
 			 uint16_t hw_qid,
 			 struct qdma_descq_credit_ctxt *ctxt)
 {
 	int rv = QDMA_SUCCESS;
-	uint32_t cr_ctxt[QDMA_S80_HARD_CR_CONTEXT_NUM_WORDS] = {0};
+	uint32_t cr_ctxt[QDMA_CPM4_CR_CONTEXT_NUM_WORDS] = {0};
 	enum ind_ctxt_cmd_sel sel = c2h ? QDMA_CTXT_SEL_CR_C2H :
 			QDMA_CTXT_SEL_CR_H2C;
 
@@ -4357,8 +4445,8 @@ static int qdma_s80_hard_credit_context_read(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_indirect_reg_read(dev_hndl, sel, hw_qid,
-			QDMA_S80_HARD_CR_CONTEXT_NUM_WORDS, cr_ctxt);
+	rv = qdma_cpm4_indirect_reg_read(dev_hndl, sel, hw_qid,
+			QDMA_CPM4_CR_CONTEXT_NUM_WORDS, cr_ctxt);
 	if (rv < 0)
 		return rv;
 
@@ -4372,7 +4460,7 @@ static int qdma_s80_hard_credit_context_read(void *dev_hndl, uint8_t c2h,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_credit_context_clear() - clear credit context
+ * qdma_cpm4_credit_context_clear() - clear credit context
  *
  * @dev_hndl:	device handle
  * @c2h     :	is c2h queue
@@ -4380,7 +4468,7 @@ static int qdma_s80_hard_credit_context_read(void *dev_hndl, uint8_t c2h,
  *
  * Return   :	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_credit_context_clear(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_credit_context_clear(void *dev_hndl, uint8_t c2h,
 			  uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = c2h ? QDMA_CTXT_SEL_CR_C2H :
@@ -4392,12 +4480,12 @@ static int qdma_s80_hard_credit_context_clear(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_clear(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_clear(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_credit_context_invalidate() - invalidate credit context
+ * qdma_cpm4_credit_context_invalidate() - invalidate credit context
  *
  * @dev_hndl:	device handle
  * @c2h     :	is c2h queue
@@ -4405,7 +4493,7 @@ static int qdma_s80_hard_credit_context_clear(void *dev_hndl, uint8_t c2h,
  *
  * Return   :	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_credit_context_invalidate(void *dev_hndl, uint8_t c2h,
+static int qdma_cpm4_credit_context_invalidate(void *dev_hndl, uint8_t c2h,
 				   uint16_t hw_qid)
 {
 	enum ind_ctxt_cmd_sel sel = c2h ? QDMA_CTXT_SEL_CR_C2H :
@@ -4417,12 +4505,12 @@ static int qdma_s80_hard_credit_context_invalidate(void *dev_hndl, uint8_t c2h,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	return qdma_s80_hard_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
+	return qdma_cpm4_indirect_reg_invalidate(dev_hndl, sel, hw_qid);
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_credit_ctx_conf() - configure credit context
+ * qdma_cpm4_credit_ctx_conf() - configure credit context
  *
  * @dev_hndl    :	device handle
  * @c2h         :	is c2h queue
@@ -4433,7 +4521,7 @@ static int qdma_s80_hard_credit_context_invalidate(void *dev_hndl, uint8_t c2h,
  *
  * Return       :	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_credit_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
+int qdma_cpm4_credit_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 			struct qdma_descq_credit_ctxt *ctxt,
 			enum qdma_hw_access_type access_type)
 {
@@ -4441,14 +4529,14 @@ int qdma_s80_hard_credit_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
-		rv = qdma_s80_hard_credit_context_read(dev_hndl, c2h,
+		rv = qdma_cpm4_credit_context_read(dev_hndl, c2h,
 				hw_qid, ctxt);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
-		rv = qdma_s80_hard_credit_context_clear(dev_hndl, c2h, hw_qid);
+		rv = qdma_cpm4_credit_context_clear(dev_hndl, c2h, hw_qid);
 		break;
 	case QDMA_HW_ACCESS_INVALIDATE:
-		rv = qdma_s80_hard_credit_context_invalidate(dev_hndl, c2h,
+		rv = qdma_cpm4_credit_context_invalidate(dev_hndl, c2h,
 				hw_qid);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
@@ -4466,7 +4554,7 @@ int qdma_s80_hard_credit_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_dump_config_regs() - Function to get qdma config register
+ * qdma_cpm4_dump_config_regs() - Function to get qdma config register
  * dump in a buffer
  *
  * @dev_hndl:	device handle
@@ -4476,12 +4564,12 @@ int qdma_s80_hard_credit_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
  *
  * Return:	Length up-till the buffer is filled -success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_dump_config_regs(void *dev_hndl, uint8_t is_vf,
+int qdma_cpm4_dump_config_regs(void *dev_hndl, uint8_t is_vf,
 		char *buf, uint32_t buflen)
 {
 	uint32_t i = 0, j = 0;
 	struct xreg_info *reg_info;
-	uint32_t num_regs = qdma_s80_hard_config_num_regs_get();
+	uint32_t num_regs = qdma_cpm4_config_num_regs_get();
 	uint32_t len = 0, val = 0;
 	int rv = QDMA_SUCCESS;
 	char name[DEBGFS_GEN_NAME_SZ] = "";
@@ -4493,7 +4581,7 @@ int qdma_s80_hard_dump_config_regs(void *dev_hndl, uint8_t is_vf,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	if (buflen < qdma_s80_hard_reg_dump_buf_len()) {
+	if (buflen < qdma_cpm4_reg_dump_buf_len()) {
 		qdma_log_error("%s: Buffer too small, err:%d\n", __func__,
 					   -QDMA_ERR_NO_MEM);
 		return -QDMA_ERR_NO_MEM;
@@ -4506,9 +4594,9 @@ int qdma_s80_hard_dump_config_regs(void *dev_hndl, uint8_t is_vf,
 		return -QDMA_ERR_HWACC_FEATURE_NOT_SUPPORTED;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
-	reg_info = qdma_s80_hard_config_regs_get();
+	reg_info = qdma_cpm4_config_regs_get();
 
 	for (i = 0; i < num_regs; i++) {
 		if ((GET_CAPABILITY_MASK(dev_cap.mm_en, dev_cap.st_en,
@@ -4549,7 +4637,7 @@ int qdma_s80_hard_dump_config_regs(void *dev_hndl, uint8_t is_vf,
 
 /*****************************************************************************/
 /**
- * qdma_dump_s80_hard_queue_context() - Function to get qdma queue context dump
+ * qdma_dump_cpm4_queue_context() - Function to get qdma queue context dump
  * in a buffer
  *
  * @dev_hndl:   device handle
@@ -4559,7 +4647,7 @@ int qdma_s80_hard_dump_config_regs(void *dev_hndl, uint8_t is_vf,
  *
  * Return:	Length up-till the buffer is filled -success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_dump_queue_context(void *dev_hndl,
+int qdma_cpm4_dump_queue_context(void *dev_hndl,
 		uint8_t st,
 		enum qdma_dev_q_type q_type,
 		struct qdma_descq_context *ctxt_data,
@@ -4595,7 +4683,7 @@ int qdma_s80_hard_dump_queue_context(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_context_buf_len(st, q_type, &req_buflen);
+	rv = qdma_cpm4_context_buf_len(st, q_type, &req_buflen);
 	if (rv != QDMA_SUCCESS)
 		return rv;
 
@@ -4605,7 +4693,7 @@ int qdma_s80_hard_dump_queue_context(void *dev_hndl,
 		return -QDMA_ERR_NO_MEM;
 	}
 
-	rv = dump_s80_hard_context(ctxt_data, st, q_type,
+	rv = dump_cpm4_context(ctxt_data, st, q_type,
 				buf, buflen);
 
 	return rv;
@@ -4613,7 +4701,7 @@ int qdma_s80_hard_dump_queue_context(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_dump_s80_hard_intr_context() - Function to get qdma interrupt
+ * qdma_dump_cpm4_intr_context() - Function to get qdma interrupt
  * context dump in a buffer
  *
  * @dev_hndl:   device handle
@@ -4623,7 +4711,7 @@ int qdma_s80_hard_dump_queue_context(void *dev_hndl,
  *
  * Return:	Length up-till the buffer is filled -success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_dump_intr_context(void *dev_hndl,
+int qdma_cpm4_dump_intr_context(void *dev_hndl,
 		struct qdma_indirect_intr_ctxt *intr_ctx,
 		int ring_index,
 		char *buf, uint32_t buflen)
@@ -4650,24 +4738,25 @@ int qdma_s80_hard_dump_intr_context(void *dev_hndl,
 			__func__, -QDMA_ERR_INV_PARAM);
 		return -QDMA_ERR_INV_PARAM;
 	}
-	req_buflen = qdma_s80_hard_intr_context_buf_len();
+	req_buflen = qdma_cpm4_intr_context_buf_len();
 	if (buflen < req_buflen) {
 		qdma_log_error("%s: Too small buffer(%d), reqd(%d), err:%d\n",
 			__func__, buflen, req_buflen, -QDMA_ERR_NO_MEM);
 		return -QDMA_ERR_NO_MEM;
 	}
 
-	rv = dump_s80_hard_intr_context(intr_ctx, ring_index, buf, buflen);
+	rv = dump_cpm4_intr_context(intr_ctx, ring_index, buf, buflen);
 
 	return rv;
 }
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_read_dump_queue_context() - Function to read and dump the queue
+ * qdma_cpm4_read_dump_queue_context() - Function to read and dump the queue
  * context in a buffer
  *
  * @dev_hndl:   device handle
+ * @func_id:    function id
  * @hw_qid:     queue id
  * @st:			Queue Mode(ST or MM)
  * @q_type:		Queue type(H2C/C2H/CMPT)
@@ -4676,7 +4765,8 @@ int qdma_s80_hard_dump_intr_context(void *dev_hndl,
  *
  * Return:	Length up-till the buffer is filled -success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
+int qdma_cpm4_read_dump_queue_context(void *dev_hndl,
+		uint16_t func_id,
 		uint16_t qid_hw,
 		uint8_t st,
 		enum qdma_dev_q_type q_type,
@@ -4707,7 +4797,7 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	rv = qdma_s80_hard_context_buf_len(st, q_type, &req_buflen);
+	rv = qdma_cpm4_context_buf_len(st, q_type, &req_buflen);
 
 	if (rv != QDMA_SUCCESS)
 		return rv;
@@ -4721,7 +4811,7 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 	qdma_memset(&context, 0, sizeof(struct qdma_descq_context));
 
 	if (q_type != QDMA_DEV_Q_TYPE_CMPT) {
-		rv = qdma_s80_hard_sw_ctx_conf(dev_hndl, (uint8_t)q_type,
+		rv = qdma_cpm4_sw_ctx_conf(dev_hndl, (uint8_t)q_type,
 				qid_hw, &(context.sw_ctxt),
 				QDMA_HW_ACCESS_READ);
 		if (rv < 0) {
@@ -4731,7 +4821,7 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 			return rv;
 		}
 
-		rv = qdma_s80_hard_hw_ctx_conf(dev_hndl, (uint8_t)q_type,
+		rv = qdma_cpm4_hw_ctx_conf(dev_hndl, (uint8_t)q_type,
 				qid_hw, &(context.hw_ctxt),
 				QDMA_HW_ACCESS_READ);
 		if (rv < 0) {
@@ -4741,7 +4831,7 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 			return rv;
 		}
 
-		rv = qdma_s80_hard_qid2vec_conf(dev_hndl, (uint8_t)q_type,
+		rv = qdma_cpm4_qid2vec_conf(dev_hndl, (uint8_t)q_type,
 				qid_hw, &(context.qid2vec),
 				QDMA_HW_ACCESS_READ);
 		if (rv < 0) {
@@ -4751,7 +4841,7 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 			return rv;
 		}
 
-		rv = qdma_s80_hard_credit_ctx_conf(dev_hndl, (uint8_t)q_type,
+		rv = qdma_cpm4_credit_ctx_conf(dev_hndl, (uint8_t)q_type,
 				qid_hw, &(context.cr_ctxt),
 				QDMA_HW_ACCESS_READ);
 		if (rv < 0) {
@@ -4762,7 +4852,7 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 		}
 
 		if (st && (q_type == QDMA_DEV_Q_TYPE_C2H)) {
-			rv = qdma_s80_hard_pfetch_ctx_conf(dev_hndl,
+			rv = qdma_cpm4_pfetch_ctx_conf(dev_hndl,
 					qid_hw,
 					&(context.pfetch_ctxt),
 					QDMA_HW_ACCESS_READ);
@@ -4777,7 +4867,7 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 
 	if ((st && (q_type == QDMA_DEV_Q_TYPE_C2H)) ||
 			(!st && (q_type == QDMA_DEV_Q_TYPE_CMPT))) {
-		rv = qdma_s80_hard_cmpt_ctx_conf(dev_hndl, qid_hw,
+		rv = qdma_cpm4_cmpt_ctx_conf(dev_hndl, qid_hw,
 						&(context.cmpt_ctxt),
 						 QDMA_HW_ACCESS_READ);
 		if (rv < 0) {
@@ -4788,9 +4878,16 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 		}
 	}
 
+	rv = qdma_cpm4_fmap_conf(dev_hndl, func_id,
+			&(context.fmap), QDMA_HW_ACCESS_READ);
+	if (rv < 0) {
+		qdma_log_error(
+		"%s: Failed to read fmap context, err = %d",
+				__func__, rv);
+		return rv;
+	}
 
-
-	rv = dump_s80_hard_context(&context, st, q_type,
+	rv = dump_cpm4_context(&context, st, q_type,
 				buf, buflen);
 
 	return rv;
@@ -4798,14 +4895,14 @@ int qdma_s80_hard_read_dump_queue_context(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_init_ctxt_memory() - Initialize the context for all queues
+ * qdma_cpm4_init_ctxt_memory() - Initialize the context for all queues
  *
  * @dev_hndl    :	device handle
  *
  * Return       :	0   - success and < 0 - failure
  *****************************************************************************/
 
-int qdma_s80_hard_init_ctxt_memory(void *dev_hndl)
+int qdma_cpm4_init_ctxt_memory(void *dev_hndl)
 {
 #ifdef ENABLE_INIT_CTXT_MEMORY
 	uint32_t data[QDMA_REG_IND_CTXT_REG_COUNT];
@@ -4819,7 +4916,7 @@ int qdma_s80_hard_init_ctxt_memory(void *dev_hndl)
 	}
 
 	qdma_memset(data, 0, sizeof(uint32_t) * QDMA_REG_IND_CTXT_REG_COUNT);
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_info);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_info);
 	qdma_log_info("%s: clearing the context for all qs",
 			__func__);
 	for (; i < dev_info.num_qs; i++) {
@@ -4840,7 +4937,7 @@ int qdma_s80_hard_init_ctxt_memory(void *dev_hndl)
 				continue;
 			}
 
-			rv = qdma_s80_hard_indirect_reg_clear(dev_hndl,
+			rv = qdma_cpm4_indirect_reg_clear(dev_hndl,
 					(enum ind_ctxt_cmd_sel)sel, i);
 			if (rv < 0)
 				return rv;
@@ -4849,7 +4946,7 @@ int qdma_s80_hard_init_ctxt_memory(void *dev_hndl)
 
 	/* fmap */
 	for (i = 0; i < dev_info.num_pfs; i++)
-		qdma_s80_hard_fmap_clear(dev_hndl, i);
+		qdma_cpm4_fmap_clear(dev_hndl, i);
 #else
 	if (!dev_hndl) {
 		qdma_log_error("%s: dev_handle is NULL, err:%d\n",
@@ -4864,9 +4961,9 @@ static int get_reg_entry(uint32_t reg_addr, int *reg_entry)
 {
 	uint32_t i = 0;
 	struct xreg_info *reg_info;
-	uint32_t num_regs = qdma_s80_hard_config_num_regs_get();
+	uint32_t num_regs = qdma_cpm4_config_num_regs_get();
 
-	reg_info = qdma_s80_hard_config_regs_get();
+	reg_info = qdma_cpm4_config_regs_get();
 
 	for (i = 0; (i < num_regs - 1); i++) {
 		if (reg_info[i].addr == reg_addr) {
@@ -4889,7 +4986,7 @@ static int get_reg_entry(uint32_t reg_addr, int *reg_entry)
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_dump_config_reg_list() - Dump the registers
+ * qdma_cpm4_dump_config_reg_list() - Dump the registers
  *
  * @dev_hndl:		device handle
  * @total_regs :	Max registers to read
@@ -4899,7 +4996,7 @@ static int get_reg_entry(uint32_t reg_addr, int *reg_entry)
  *
  * Return: returns the platform specific error code
  *****************************************************************************/
-int qdma_s80_hard_dump_config_reg_list(void *dev_hndl, uint32_t total_regs,
+int qdma_cpm4_dump_config_reg_list(void *dev_hndl, uint32_t total_regs,
 		struct qdma_reg_data *reg_list, char *buf, uint32_t buflen)
 {
 	uint32_t j = 0, len = 0;
@@ -4907,7 +5004,7 @@ int qdma_s80_hard_dump_config_reg_list(void *dev_hndl, uint32_t total_regs,
 	int reg_data_entry;
 	int rv = 0;
 	char name[DEBGFS_GEN_NAME_SZ] = "";
-	struct xreg_info *reg_info = qdma_s80_hard_config_regs_get();
+	struct xreg_info *reg_info = qdma_cpm4_config_regs_get();
 
 	if (!dev_hndl) {
 		qdma_log_error("%s: dev_handle is NULL, err:%d\n",
@@ -4977,14 +5074,14 @@ int qdma_s80_hard_dump_config_reg_list(void *dev_hndl, uint32_t total_regs,
  *
  * Return: returns the platform specific error code
  *****************************************************************************/
-int qdma_s80_hard_read_reg_list(void *dev_hndl, uint8_t is_vf,
+int qdma_cpm4_read_reg_list(void *dev_hndl, uint8_t is_vf,
 		uint16_t reg_rd_slot,
 		uint16_t *total_regs,
 		struct qdma_reg_data *reg_list)
 {
 	uint16_t reg_count = 0, i = 0, j = 0;
-	uint32_t num_regs = qdma_s80_hard_config_num_regs_get();
-	struct xreg_info *reg_info = qdma_s80_hard_config_regs_get();
+	uint32_t num_regs = qdma_cpm4_config_num_regs_get();
+	struct xreg_info *reg_info = qdma_cpm4_config_regs_get();
 	struct qdma_dev_attributes dev_cap;
 	uint32_t reg_start_addr = 0;
 	int reg_index = 0;
@@ -5009,20 +5106,20 @@ int qdma_s80_hard_read_reg_list(void *dev_hndl, uint8_t is_vf,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	switch (reg_rd_slot) {
 	case QDMA_REG_READ_GROUP_1:
-			reg_start_addr = QDMA_S80_REG_GROUP_1_START_ADDR;
+			reg_start_addr = QDMA_CPM4_REG_GROUP_1_START_ADDR;
 			break;
 	case QDMA_REG_READ_GROUP_2:
-			reg_start_addr = QDMA_S80_REG_GROUP_2_START_ADDR;
+			reg_start_addr = QDMA_CPM4_REG_GROUP_2_START_ADDR;
 			break;
 	case QDMA_REG_READ_GROUP_3:
-			reg_start_addr = QDMA_S80_REG_GROUP_3_START_ADDR;
+			reg_start_addr = QDMA_CPM4_REG_GROUP_3_START_ADDR;
 			break;
 	case QDMA_REG_READ_GROUP_4:
-			reg_start_addr = QDMA_S80_REG_GROUP_4_START_ADDR;
+			reg_start_addr = QDMA_CPM4_REG_GROUP_4_START_ADDR;
 			break;
 	default:
 		qdma_log_error("%s: Invalid slot received\n",
@@ -5066,7 +5163,7 @@ int qdma_s80_hard_read_reg_list(void *dev_hndl, uint8_t is_vf,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_write_global_ring_sizes() - set the global ring size array
+ * qdma_cpm4_write_global_ring_sizes() - set the global ring size array
  *
  * @dev_hndl:   device handle
  * @index: Index from where the values needs to written
@@ -5077,7 +5174,7 @@ int qdma_s80_hard_read_reg_list(void *dev_hndl, uint8_t is_vf,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_write_global_ring_sizes(void *dev_hndl, uint8_t index,
+static int qdma_cpm4_write_global_ring_sizes(void *dev_hndl, uint8_t index,
 				uint8_t count, const uint32_t *glbl_rng_sz)
 {
 	if (!dev_hndl || !glbl_rng_sz || !count) {
@@ -5096,7 +5193,7 @@ static int qdma_s80_hard_write_global_ring_sizes(void *dev_hndl, uint8_t index,
 	}
 
 	qdma_write_csr_values(dev_hndl,
-			QDMA_S80_HARD_GLBL_RNG_SZ_1_ADDR, index, count,
+			QDMA_CPM4_GLBL_RNG_SZ_1_ADDR, index, count,
 			glbl_rng_sz);
 
 	return QDMA_SUCCESS;
@@ -5104,7 +5201,7 @@ static int qdma_s80_hard_write_global_ring_sizes(void *dev_hndl, uint8_t index,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_read_global_ring_sizes() - function to get the
+ * qdma_cpm4_read_global_ring_sizes() - function to get the
  *	global rng_sz array
  *
  * @dev_hndl:   device handle
@@ -5116,7 +5213,7 @@ static int qdma_s80_hard_write_global_ring_sizes(void *dev_hndl, uint8_t index,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_read_global_ring_sizes(void *dev_hndl, uint8_t index,
+static int qdma_cpm4_read_global_ring_sizes(void *dev_hndl, uint8_t index,
 				uint8_t count, uint32_t *glbl_rng_sz)
 {
 	if (!dev_hndl || !glbl_rng_sz || !count) {
@@ -5135,7 +5232,7 @@ static int qdma_s80_hard_read_global_ring_sizes(void *dev_hndl, uint8_t index,
 	}
 
 	qdma_read_csr_values(dev_hndl,
-			QDMA_S80_HARD_GLBL_RNG_SZ_1_ADDR, index, count,
+			QDMA_CPM4_GLBL_RNG_SZ_1_ADDR, index, count,
 			glbl_rng_sz);
 
 	return QDMA_SUCCESS;
@@ -5143,7 +5240,7 @@ static int qdma_s80_hard_read_global_ring_sizes(void *dev_hndl, uint8_t index,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_write_global_timer_count() - function to set the timer values
+ * qdma_cpm4_write_global_timer_count() - function to set the timer values
  *
  * @dev_hndl:   device handle
  * @glbl_tmr_cnt: pointer to the array having the values to write
@@ -5154,7 +5251,7 @@ static int qdma_s80_hard_read_global_ring_sizes(void *dev_hndl, uint8_t index,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_write_global_timer_count(void *dev_hndl, uint8_t index,
+static int qdma_cpm4_write_global_timer_count(void *dev_hndl, uint8_t index,
 				uint8_t count, const uint32_t *glbl_tmr_cnt)
 {
 	struct qdma_dev_attributes dev_cap;
@@ -5174,11 +5271,11 @@ static int qdma_s80_hard_write_global_timer_count(void *dev_hndl, uint8_t index,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.st_en || dev_cap.mm_cmpt_en)
 		qdma_write_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_TIMER_CNT_1_ADDR,
+				QDMA_CPM4_C2H_TIMER_CNT_1_ADDR,
 				index, count, glbl_tmr_cnt);
 	else {
 		qdma_log_error("%s: ST or MM cmpt not supported, err:%d\n",
@@ -5192,7 +5289,7 @@ static int qdma_s80_hard_write_global_timer_count(void *dev_hndl, uint8_t index,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_read_global_timer_count() - function to get the timer values
+ * qdma_cpm4_read_global_timer_count() - function to get the timer values
  *
  * @dev_hndl:   device handle
  * @index:	 Index from where the values needs to read
@@ -5203,7 +5300,7 @@ static int qdma_s80_hard_write_global_timer_count(void *dev_hndl, uint8_t index,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_read_global_timer_count(void *dev_hndl, uint8_t index,
+static int qdma_cpm4_read_global_timer_count(void *dev_hndl, uint8_t index,
 				uint8_t count, uint32_t *glbl_tmr_cnt)
 {
 	struct qdma_dev_attributes dev_cap;
@@ -5223,11 +5320,11 @@ static int qdma_s80_hard_read_global_timer_count(void *dev_hndl, uint8_t index,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.st_en || dev_cap.mm_cmpt_en)
 		qdma_read_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_TIMER_CNT_1_ADDR, index,
+				QDMA_CPM4_C2H_TIMER_CNT_1_ADDR, index,
 				count, glbl_tmr_cnt);
 	else {
 		qdma_log_error("%s: ST or MM cmpt not supported, err:%d\n",
@@ -5241,7 +5338,7 @@ static int qdma_s80_hard_read_global_timer_count(void *dev_hndl, uint8_t index,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_write_global_counter_threshold() - function to set the counter
+ * qdma_cpm4_write_global_counter_threshold() - function to set the counter
  *						threshold values
  *
  * @dev_hndl:   device handle
@@ -5253,7 +5350,7 @@ static int qdma_s80_hard_read_global_timer_count(void *dev_hndl, uint8_t index,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_write_global_counter_threshold(void *dev_hndl,
+static int qdma_cpm4_write_global_counter_threshold(void *dev_hndl,
 		uint8_t index,
 		uint8_t count, const uint32_t *glbl_cnt_th)
 {
@@ -5274,11 +5371,11 @@ static int qdma_s80_hard_write_global_counter_threshold(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.st_en || dev_cap.mm_cmpt_en)
 		qdma_write_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_CNT_TH_1_ADDR, index,
+				QDMA_CPM4_C2H_CNT_TH_1_ADDR, index,
 				count, glbl_cnt_th);
 	else {
 		qdma_log_error("%s: ST or MM cmpt not supported, err:%d\n",
@@ -5292,7 +5389,7 @@ static int qdma_s80_hard_write_global_counter_threshold(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_read_global_counter_threshold() - get the counter
+ * qdma_cpm4_read_global_counter_threshold() - get the counter
  *	threshold values
  *
  * @dev_hndl:   device handle
@@ -5304,7 +5401,7 @@ static int qdma_s80_hard_write_global_counter_threshold(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_read_global_counter_threshold(void *dev_hndl,
+static int qdma_cpm4_read_global_counter_threshold(void *dev_hndl,
 		uint8_t index,
 		uint8_t count, uint32_t *glbl_cnt_th)
 {
@@ -5325,11 +5422,11 @@ static int qdma_s80_hard_read_global_counter_threshold(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.st_en || dev_cap.mm_cmpt_en)
 		qdma_read_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_CNT_TH_1_ADDR, index,
+				QDMA_CPM4_C2H_CNT_TH_1_ADDR, index,
 				count, glbl_cnt_th);
 	else {
 		qdma_log_error("%s: ST or MM cmpt not supported, err:%d\n",
@@ -5342,7 +5439,7 @@ static int qdma_s80_hard_read_global_counter_threshold(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_write_global_buffer_sizes() - function to set the buffer sizes
+ * qdma_cpm4_write_global_buffer_sizes() - function to set the buffer sizes
  *
  * @dev_hndl:   device handle
  * @index:	 Index from where the values needs to written
@@ -5353,7 +5450,7 @@ static int qdma_s80_hard_read_global_counter_threshold(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_write_global_buffer_sizes(void *dev_hndl,
+static int qdma_cpm4_write_global_buffer_sizes(void *dev_hndl,
 		uint8_t index,
 		uint8_t count, const uint32_t *glbl_buf_sz)
 {
@@ -5374,11 +5471,11 @@ static int qdma_s80_hard_write_global_buffer_sizes(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.st_en)
 		qdma_write_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_BUF_SZ_0_ADDR, index,
+				QDMA_CPM4_C2H_BUF_SZ_0_ADDR, index,
 				count, glbl_buf_sz);
 	else {
 		qdma_log_error("%s: ST not supported, err:%d\n",
@@ -5392,7 +5489,7 @@ static int qdma_s80_hard_write_global_buffer_sizes(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_read_global_buffer_sizes() - function to get the buffer sizes
+ * qdma_cpm4_read_global_buffer_sizes() - function to get the buffer sizes
  *
  * @dev_hndl:   device handle
  * @index:	 Index from where the values needs to read
@@ -5403,7 +5500,7 @@ static int qdma_s80_hard_write_global_buffer_sizes(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_read_global_buffer_sizes(void *dev_hndl, uint8_t index,
+static int qdma_cpm4_read_global_buffer_sizes(void *dev_hndl, uint8_t index,
 				uint8_t count, uint32_t *glbl_buf_sz)
 {
 	struct qdma_dev_attributes dev_cap;
@@ -5423,11 +5520,11 @@ static int qdma_s80_hard_read_global_buffer_sizes(void *dev_hndl, uint8_t index,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.st_en)
 		qdma_read_csr_values(dev_hndl,
-				QDMA_S80_HARD_C2H_BUF_SZ_0_ADDR, index,
+				QDMA_CPM4_C2H_BUF_SZ_0_ADDR, index,
 				count, glbl_buf_sz);
 	else {
 		qdma_log_error("%s: ST is not supported, err:%d\n",
@@ -5441,7 +5538,7 @@ static int qdma_s80_hard_read_global_buffer_sizes(void *dev_hndl, uint8_t index,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_global_csr_conf() - function to configure global csr
+ * qdma_cpm4_global_csr_conf() - function to configure global csr
  *
  * @dev_hndl:	device handle
  * @index:	Index from where the values needs to read
@@ -5456,7 +5553,7 @@ static int qdma_s80_hard_read_global_buffer_sizes(void *dev_hndl, uint8_t index,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
+int qdma_cpm4_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
 				uint32_t *csr_val,
 				enum qdma_global_csr_type csr_type,
 				enum qdma_hw_access_type access_type)
@@ -5467,14 +5564,14 @@ int qdma_s80_hard_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
 	case QDMA_CSR_RING_SZ:
 		switch (access_type) {
 		case QDMA_HW_ACCESS_READ:
-			rv = qdma_s80_hard_read_global_ring_sizes(
+			rv = qdma_cpm4_read_global_ring_sizes(
 						dev_hndl,
 						index,
 						count,
 						csr_val);
 			break;
 		case QDMA_HW_ACCESS_WRITE:
-			rv = qdma_s80_hard_write_global_ring_sizes(
+			rv = qdma_cpm4_write_global_ring_sizes(
 						dev_hndl,
 						index,
 						count,
@@ -5492,14 +5589,14 @@ int qdma_s80_hard_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
 	case QDMA_CSR_TIMER_CNT:
 		switch (access_type) {
 		case QDMA_HW_ACCESS_READ:
-			rv = qdma_s80_hard_read_global_timer_count(
+			rv = qdma_cpm4_read_global_timer_count(
 						dev_hndl,
 						index,
 						count,
 						csr_val);
 			break;
 		case QDMA_HW_ACCESS_WRITE:
-			rv = qdma_s80_hard_write_global_timer_count(
+			rv = qdma_cpm4_write_global_timer_count(
 						dev_hndl,
 						index,
 						count,
@@ -5518,7 +5615,7 @@ int qdma_s80_hard_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
 		switch (access_type) {
 		case QDMA_HW_ACCESS_READ:
 			rv =
-			qdma_s80_hard_read_global_counter_threshold(
+			qdma_cpm4_read_global_counter_threshold(
 						dev_hndl,
 						index,
 						count,
@@ -5526,7 +5623,7 @@ int qdma_s80_hard_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
 			break;
 		case QDMA_HW_ACCESS_WRITE:
 			rv =
-			qdma_s80_hard_write_global_counter_threshold(
+			qdma_cpm4_write_global_counter_threshold(
 						dev_hndl,
 						index,
 						count,
@@ -5545,14 +5642,14 @@ int qdma_s80_hard_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
 		switch (access_type) {
 		case QDMA_HW_ACCESS_READ:
 			rv =
-			qdma_s80_hard_read_global_buffer_sizes(dev_hndl,
+			qdma_cpm4_read_global_buffer_sizes(dev_hndl,
 						index,
 						count,
 						csr_val);
 			break;
 		case QDMA_HW_ACCESS_WRITE:
 			rv =
-			qdma_s80_hard_write_global_buffer_sizes(dev_hndl,
+			qdma_cpm4_write_global_buffer_sizes(dev_hndl,
 						index,
 						count,
 						csr_val);
@@ -5580,7 +5677,7 @@ int qdma_s80_hard_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_global_writeback_interval_write() -  function to set the
+ * qdma_cpm4_global_writeback_interval_write() -  function to set the
  * writeback interval
  *
  * @dev_hndl	device handle
@@ -5588,7 +5685,7 @@ int qdma_s80_hard_global_csr_conf(void *dev_hndl, uint8_t index, uint8_t count,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_global_writeback_interval_write(void *dev_hndl,
+static int qdma_cpm4_global_writeback_interval_write(void *dev_hndl,
 		enum qdma_wrb_interval wb_int)
 {
 	uint32_t reg_val;
@@ -5607,15 +5704,15 @@ static int qdma_s80_hard_global_writeback_interval_write(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.st_en || dev_cap.mm_cmpt_en) {
 		reg_val = qdma_reg_read(dev_hndl,
-				QDMA_S80_HARD_GLBL_DSC_CFG_ADDR);
+				QDMA_CPM4_GLBL_DSC_CFG_ADDR);
 		reg_val |= FIELD_SET(GLBL_DSC_CFG_WB_ACC_INT_MASK, wb_int);
 
 		qdma_reg_write(dev_hndl,
-				QDMA_S80_HARD_GLBL_DSC_CFG_ADDR, reg_val);
+				QDMA_CPM4_GLBL_DSC_CFG_ADDR, reg_val);
 	} else {
 		qdma_log_error("%s: ST or MM cmpt not supported, err:%d\n",
 			   __func__, -QDMA_ERR_HWACC_FEATURE_NOT_SUPPORTED);
@@ -5627,7 +5724,7 @@ static int qdma_s80_hard_global_writeback_interval_write(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_global_writeback_interval_read() -  function to get the
+ * qdma_cpm4_global_writeback_interval_read() -  function to get the
  * writeback interval
  *
  * @dev_hndl:	device handle
@@ -5635,7 +5732,7 @@ static int qdma_s80_hard_global_writeback_interval_write(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-static int qdma_s80_hard_global_writeback_interval_read(void *dev_hndl,
+static int qdma_cpm4_global_writeback_interval_read(void *dev_hndl,
 		enum qdma_wrb_interval *wb_int)
 {
 	uint32_t reg_val;
@@ -5653,11 +5750,11 @@ static int qdma_s80_hard_global_writeback_interval_read(void *dev_hndl,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.st_en || dev_cap.mm_cmpt_en) {
 		reg_val = qdma_reg_read(dev_hndl,
-				QDMA_S80_HARD_GLBL_DSC_CFG_ADDR);
+				QDMA_CPM4_GLBL_DSC_CFG_ADDR);
 		*wb_int = (enum qdma_wrb_interval)FIELD_GET(
 				GLBL_DSC_CFG_WB_ACC_INT_MASK, reg_val);
 	} else {
@@ -5671,7 +5768,7 @@ static int qdma_s80_hard_global_writeback_interval_read(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_global_writeback_interval_conf() - function to configure
+ * qdma_cpm4_global_writeback_interval_conf() - function to configure
  *					the writeback interval
  *
  * @dev_hndl:   device handle
@@ -5682,7 +5779,7 @@ static int qdma_s80_hard_global_writeback_interval_read(void *dev_hndl,
  *
  * Return:	0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_global_writeback_interval_conf(void *dev_hndl,
+int qdma_cpm4_global_writeback_interval_conf(void *dev_hndl,
 				enum qdma_wrb_interval *wb_int,
 				enum qdma_hw_access_type access_type)
 {
@@ -5691,11 +5788,11 @@ int qdma_s80_hard_global_writeback_interval_conf(void *dev_hndl,
 	switch (access_type) {
 	case QDMA_HW_ACCESS_READ:
 		rv =
-		qdma_s80_hard_global_writeback_interval_read(dev_hndl, wb_int);
+		qdma_cpm4_global_writeback_interval_read(dev_hndl, wb_int);
 		break;
 	case QDMA_HW_ACCESS_WRITE:
 		rv =
-		qdma_s80_hard_global_writeback_interval_write(dev_hndl,
+		qdma_cpm4_global_writeback_interval_write(dev_hndl,
 								*wb_int);
 		break;
 	case QDMA_HW_ACCESS_CLEAR:
@@ -5715,7 +5812,7 @@ int qdma_s80_hard_global_writeback_interval_conf(void *dev_hndl,
 
 /*****************************************************************************/
 /**
- * qdma_s80_hard_mm_channel_conf() - Function to enable/disable the MM channel
+ * qdma_cpm4_mm_channel_conf() - Function to enable/disable the MM channel
  *
  * @dev_hndl:	device handle
  * @channel:	MM channel number
@@ -5726,12 +5823,12 @@ int qdma_s80_hard_global_writeback_interval_conf(void *dev_hndl,
  *
  * Return:   0   - success and < 0 - failure
  *****************************************************************************/
-int qdma_s80_hard_mm_channel_conf(void *dev_hndl, uint8_t channel,
+int qdma_cpm4_mm_channel_conf(void *dev_hndl, uint8_t channel,
 				uint8_t is_c2h,
 				uint8_t enable)
 {
-	uint32_t reg_addr = (is_c2h) ?  QDMA_S80_HARD_C2H_CHANNEL_CTL_ADDR :
-			QDMA_S80_HARD_H2C_CHANNEL_CTL_ADDR;
+	uint32_t reg_addr = (is_c2h) ?  QDMA_CPM4_C2H_CHANNEL_CTL_ADDR :
+			QDMA_CPM4_H2C_CHANNEL_CTL_ADDR;
 	struct qdma_dev_attributes dev_cap;
 
 	if (!dev_hndl) {
@@ -5740,7 +5837,7 @@ int qdma_s80_hard_mm_channel_conf(void *dev_hndl, uint8_t channel,
 		return -QDMA_ERR_INV_PARAM;
 	}
 
-	qdma_s80_hard_get_device_attributes(dev_hndl, &dev_cap);
+	qdma_cpm4_get_device_attributes(dev_hndl, &dev_cap);
 
 	if (dev_cap.mm_en) {
 		qdma_reg_write(dev_hndl,
@@ -5751,11 +5848,11 @@ int qdma_s80_hard_mm_channel_conf(void *dev_hndl, uint8_t channel,
 	return QDMA_SUCCESS;
 }
 
-int qdma_s80_hard_dump_reg_info(void *dev_hndl, uint32_t reg_addr,
+int qdma_cpm4_dump_reg_info(void *dev_hndl, uint32_t reg_addr,
 		uint32_t num_regs, char *buf, uint32_t buflen)
 {
-	uint32_t total_num_regs = qdma_s80_hard_config_num_regs_get();
-	struct xreg_info *config_regs  = qdma_s80_hard_config_regs_get();
+	uint32_t total_num_regs = qdma_cpm4_config_num_regs_get();
+	struct xreg_info *config_regs  = qdma_cpm4_config_regs_get();
 	const char *bitfield_name;
 	uint32_t i = 0, num_regs_idx = 0, k = 0, j = 0,
 			bitfield = 0, lsb = 0, msb = 31;

@@ -1,7 +1,11 @@
-RELEASE: 2020.1 Patch 
-=====================
+RELEASE: 2023.1.1
+=================
 
-This release is validated on QDMA4.0 2020.2 based example design and QDMA3.1 2020.2 based example design.
+This release is validated
+	- On VCU1525 for QDMA5.0 2022.1 example design
+	- On VCU1525 for QDMA4.0 2020.2 example design
+	- On VCU1525 for QDMA3.1 2019.2 example design
+	- On XCVP1202 for CPM5 2022.1 example design
 
 SUPPORTED FEATURES:
 ===================
@@ -94,15 +98,86 @@ SUPPORTED FEATURES:
 - Added support for MM Channel Selection and Keyhole feature in dmaperf
 - Fixed bug in in driver which caused crash during performance run
 
+2022.1 Updates
+--------------
+CPM5
+	- Tandem Boot support 
+	- FMAP context dump
+	- Debug register dump for ST and MM Errors
+	- Dual Instance support
+
+2022.1.1 Patch Updates
+----------------------
+- Ported changes from pull request https://github.com/Xilinx/dma_ip_drivers/pull/167 to fix XRT build issues while integrating qdma linux driver in to XRT stack
+
+2022.1.2 Patch Updates
+----------------------
+- Added VF 4K queues support for CPM5 design. This feature is applicable only when corresponding RTL support is added.
+
+2022.1.3 Patch Updates
+----------------------
+- Ported changes from pull request https://github.com/Xilinx/dma_ip_drivers/pull/170 to fix coverity issues
+
+2022.1.4 Patch Updates
+----------------------
+- Added support for more than 2K queues for PF/VF
+- Added support for Fedora36
+
+2022.1.5 Patch Updates
+----------------------
+- Added PF/VF 4K queues support for CPM5 design. This feature is applicable only when corresponding RTL support is added.
+
+2023.1.0 Updates
+----------------
+- Updated the queue list command for >2048 Q's.
+- Added support to accomodate H2C & C2H Q's offset with fixed intervals for dma-perf application.
+
+2023.1.1 Updates
+----------------
+- Optimized the driver code and HW register settings for performance improvements.
+
 KNOWN ISSUES:
 =============
-- In interrupt mode, Sometimes completions are not received when C2H PIDX updates are held for 64 descriptors
-- On QDMA4.0 2020.1 design onwards, HW error observed during the probe of the VFs
-- With 2020.2 QDMA4.0 design, ST Performance design has performance drop for higher packet sizes
+- CPM5 Only
+	- When >10VFs are attached to PF and FLR is issued, mailbox timeouts are observed.
+	- Performace optimizations are not finalized, Performance report with optimizations will be available in next patch release.
+
+- All Designs
+	- In interrupt mode, Sometimes completions are not received when C2H PIDX updates are held for 64 descriptors
+	- On QDMA4.0 2020.1 design, HW error observed during the probe of the VFs
+	- With 2020.2 QDMA4.0 design, ST Performance design has performance drop for higher packet sizes
 
 DRIVER LIMITATIONS:
 ===================
-- Driver compilation on Fedora 28 with gcc8.1 results in compilation warnings
-- Big endian systems are not supported
-- For optimal QDMA streaming performance, packet buffers of the descriptor ring should be aligned to at least 256 bytes.
-- FLR is not supported in the Driver for CentOS because linux kernels provided in CentOS versions does not support the driver call back registration for FLR functionality
+- CPM5 Only
+	- VF functionality is verified with 240 VF's as per CPM5 HW limitation
+
+- All Designs
+	- Driver compilation on Fedora 28 with gcc8.1 results in compilation warnings
+	- Big endian systems are not supported
+	- For optimal QDMA streaming performance, packet buffers of the descriptor ring should be aligned to at least 256 bytes.
+	- FLR is not supported in the Driver for CentOS because linux kernels provided in CentOS versions does not support the driver call back registration for FLR functionality
+
+
+
+
+
+
+/*
+ * This file is part of the Xilinx DMA IP Core driver for Linux
+ *
+ * Copyright (c) 2017-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Advanced Micro Devices, Inc. All rights reserved.
+ *
+ * This source code is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * The full GNU General Public License is included in this distribution in
+ * the file called "COPYING".
+ */

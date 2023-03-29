@@ -2,8 +2,8 @@
  * This file is part of the QDMA userspace application
  * to enable the user to execute the QDMA functionality
  *
- * Copyright (c) 2018-2020,  Xilinx, Inc.
- * All rights reserved.
+ * Copyright (c) 2018-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Advanced Micro Devices, Inc. All rights reserved.
  *
  * This source code is licensed under BSD-style license (found in the
  * LICENSE file in the root directory of this source tree)
@@ -196,7 +196,7 @@ static void __attribute__((noreturn)) usage(FILE *fp)
 {
 	fprintf(fp, "Usage: %s [dev|qdma[vf]<N>] [operation] \n", progname);
 	fprintf(fp, "\tdev [operation]: system wide FPGA operations\n");
-	fprintf(fp, 
+	fprintf(fp,
 		"\t\tlist                    list all qdma functions\n");
 	fprintf(fp,
 		"\tqdma[N] [operation]: per QDMA FPGA operations\n");
@@ -205,7 +205,7 @@ static void __attribute__((noreturn)) usage(FILE *fp)
 		"\t\tstat                    statistics of qdma[N] device\n"
 		"\t\tstat clear              clear all statistics data of qdma[N} device\n"
 		"\t\tglobal_csr              dump the Global CSR of qdma[N} device\n"
-		"\t\tq list                  list all queues\n"
+		"\t\tq list <start_idx> <num_Qs>  - List <num_Qs> queues from idx <start_idx>\n"
 		"\t\tq add idx <N> [mode <mm|st>] [dir <h2c|c2h|bi|cmpt>] - add a queue\n"
 		"\t\t                                                  *mode default to mm\n"
 		"\t\t                                                  *dir default to h2c\n"
@@ -245,7 +245,9 @@ static void __attribute__((noreturn)) usage(FILE *fp)
 	fprintf(fp,
 		"\t\tintring dump vector <N> <start_idx> <end_idx> - interrupt ring dump for vector number <N>  \n"
 		"\t\t                                                for intrrupt entries :<start_idx> --- <end_idx>\n");
-
+#ifdef TANDEM_BOOT_SUPPORTED
+	fprintf(fp, "\t\ten_st - enable streamig  \n");
+#endif
 	exit(fp == stderr ? 1 : 0);
 }
 
@@ -329,7 +331,7 @@ static int validate_regcmd(enum xnl_op_t qcmd, struct xcmd_reg	*regcmd)
 		case XNL_CMD_REG_RD:
 		case XNL_CMD_REG_INFO_READ:
 		case XNL_CMD_REG_WRT:
-			if ((regcmd->bar != 0) && (regcmd->bar != 2)) {
+			if ((regcmd->bar != 0) && (regcmd->bar != 2) && (regcmd->bar != 4)) {
 				printf("dmactl: bar %u number out of range\n",
 				       regcmd->bar);
 				invalid = -EINVAL;
@@ -352,8 +354,8 @@ static int parse_reg_cmd(int argc, char *argv[], int i, struct xcmd_info *xcmd)
 
 	/*
 	 * reg dump
-	 * reg read [bar <N>] <addr> 
-	 * reg write [bar <N>] <addr> <val> 
+	 * reg read [bar <N>] <addr>
+	 * reg write [bar <N>] <addr> <val>
 	 */
 
 	memset(regcmd, 0, sizeof(struct xcmd_reg));
@@ -791,7 +793,7 @@ static int read_qparm(int argc, char *argv[], int i, struct xcmd_q_parm *qparm,
 
 			f_arg_set |= 1 << QPARM_C2H_BUFSZ_IDX;
 			i++;
-		
+
 		} else if (!strcmp(argv[i], "idx_ringsz")) {
 			rv = next_arg_read_int(argc, argv, &i, &v1);
 			if (rv < 0)
@@ -994,6 +996,8 @@ static int read_qparm(int argc, char *argv[], int i, struct xcmd_q_parm *qparm,
 static int parse_q_cmd(int argc, char *argv[], int i, struct xcmd_info *xcmd)
 {
 	struct xcmd_q_parm *qparm = &xcmd->req.qparm;
+	uint32_t v1;
+	unsigned int f_arg_set = 0;
 	int rv;
 	int args_valid;
 
@@ -1011,6 +1015,15 @@ static int parse_q_cmd(int argc, char *argv[], int i, struct xcmd_info *xcmd)
 
 	if (!strcmp(argv[i], "list")) {
 		xcmd->op = XNL_CMD_Q_LIST;
+		rv = next_arg_read_int(argc, argv, &i, &v1);
+		if (rv < 0)
+			return rv;
+		qparm->idx = v1;
+		f_arg_set |= 1 << QPARM_IDX;
+		rv = next_arg_read_int(argc, argv, &i, &v1);
+		if (rv < 0)
+			return rv;
+		qparm->num_q = v1;
 		return ++i;
 	} else if (!strcmp(argv[i], "add")) {
 		unsigned int mask;
@@ -1082,7 +1095,7 @@ static int parse_q_cmd(int argc, char *argv[], int i, struct xcmd_info *xcmd)
 		printf("Error: Unknown q command\n");
 		return -EINVAL;
 	}
-	
+
 	if (rv < 0)
 		return rv;
 	i = rv;
@@ -1102,6 +1115,7 @@ static int parse_q_cmd(int argc, char *argv[], int i, struct xcmd_info *xcmd)
 
 	args_valid = validate_qcmd(xcmd->op, qparm);
 
+	qparm->sflags = f_arg_set;
 	return (args_valid == 0) ? i : args_valid;
 }
 
@@ -1172,7 +1186,7 @@ int parse_cmd(int argc, char *argv[], struct xcmd_info *xcmd)
 
 	progname = argv[0];
 
-	if (argc == 1) 
+	if (argc == 1)
 		usage(stderr);
 
 	if (argc == 2) {
@@ -1216,13 +1230,17 @@ int parse_cmd(int argc, char *argv[], struct xcmd_info *xcmd)
 	} else if (!strcmp(argv[2], "cap")) {
 		rv = 3;
 		xcmd->op = XNL_CMD_DEV_CAP;
-	}  else if (!strcmp(argv[2], "global_csr")) {
+	} else if (!strcmp(argv[2], "global_csr")) {
 		rv = 3;
 		xcmd->op = XNL_CMD_GLOBAL_CSR;
-	}
-	else if (!strcmp(argv[2], "info")) { /* not exposed. only for debug */
+	} else if (!strcmp(argv[2], "info")) { /* not exposed. only for debug */
 		rv = 3;
 		xcmd->op = XNL_CMD_DEV_INFO;
+#ifdef TANDEM_BOOT_SUPPORTED
+	} else if (!strcmp(argv[2], "en_st")) {
+		rv = 3;
+		xcmd->op = XNL_CMD_EN_ST;
+#endif
 	} else {
 		warnx("bad parameter \"%s\".\n", argv[2]);
 		return -EINVAL;
@@ -1232,7 +1250,7 @@ done:
 	if (rv < 0)
 		return rv;
 	i = rv;
-	
+
 	if (i < argc) {
 		warnx("unexpected parameter \"%s\".\n", argv[i]);
 		return -EINVAL;

@@ -1,5 +1,6 @@
 /*
- * Copyright(c) 2019-2020 Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2019-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022, Advanced Micro Devices, Inc. All rights reserved.
  *
  * This source code is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -43,6 +44,7 @@ enum eqdma_error_idx {
 	EQDMA_DSC_ERR_RQ_CANCEL,
 	EQDMA_DSC_ERR_DBE,
 	EQDMA_DSC_ERR_SBE,
+	EQDMA_DSC_ERR_PORT_ID,
 	EQDMA_DSC_ERR_ALL,
 
 	/* TRQ Errors */
@@ -71,6 +73,7 @@ enum eqdma_error_idx {
 	EQDMA_ST_C2H_ERR_AVL_RING_DSC,
 	EQDMA_ST_C2H_ERR_HDR_ECC_UNC,
 	EQDMA_ST_C2H_ERR_HDR_ECC_COR,
+	EQDMA_ST_C2H_ERR_WRB_PORT_ID_ERR,
 	EQDMA_ST_C2H_ERR_ALL,
 
 	/* Fatal Errors */
@@ -181,6 +184,27 @@ enum eqdma_error_idx {
 	EQDMA_DBE_ERR_RC_RRQ_ODD_RAM,
 	EQDMA_DBE_ERR_ALL,
 
+	/* MM C2H Errors */
+	EQDMA_MM_C2H_WR_SLR_ERR,
+	EQDMA_MM_C2H_RD_SLR_ERR,
+	EQDMA_MM_C2H_WR_FLR_ERR,
+	EQDMA_MM_C2H_UR_ERR,
+	EQDMA_MM_C2H_WR_UC_RAM_ERR,
+	EQDMA_MM_C2H_ERR_ALL,
+
+	/* MM H2C Engine0 Errors */
+	EQDMA_MM_H2C0_RD_HDR_POISON_ERR,
+	EQDMA_MM_H2C0_RD_UR_CA_ERR,
+	EQDMA_MM_H2C0_RD_HDR_BYTE_ERR,
+	EQDMA_MM_H2C0_RD_HDR_PARAM_ERR,
+	EQDMA_MM_H2C0_RD_HDR_ADR_ERR,
+	EQDMA_MM_H2C0_RD_FLR_ERR,
+	EQDMA_MM_H2C0_RD_DAT_POISON_ERR,
+	EQDMA_MM_H2C0_RD_RQ_DIS_ERR,
+	EQDMA_MM_H2C0_WR_DEC_ERR,
+	EQDMA_MM_H2C0_WR_SLV_ERR,
+	EQDMA_MM_H2C0_ERR_ALL,
+
 	EQDMA_ERRS_ALL
 };
 
@@ -193,6 +217,13 @@ struct eqdma_hw_err_info {
 	uint32_t global_err_mask;
 	void (*eqdma_hw_err_process)(void *dev_hndl);
 };
+
+/* In QDMA_GLBL2_MISC_CAP(0x134) register,
+ * Bits [23:20] gives QDMA IP version.
+ * 0: QDMA3.1, 1: QDMA4.0, 2: QDMA5.0
+ */
+#define EQDMA_IP_VERSION_4                1
+#define EQDMA_IP_VERSION_5                2
 
 #define EQDMA_OFFSET_VF_VERSION           0x5014
 #define EQDMA_OFFSET_VF_USER_BAR		  0x5018
@@ -208,6 +239,9 @@ int eqdma_init_ctxt_memory(void *dev_hndl);
 
 int eqdma_get_version(void *dev_hndl, uint8_t is_vf,
 		struct qdma_hw_version_info *version_info);
+
+int eqdma_get_ip_version(void *dev_hndl, uint8_t is_vf,
+			uint32_t *ip_version);
 
 int eqdma_sw_ctx_conf(void *dev_hndl, uint8_t c2h, uint16_t hw_qid,
 			struct qdma_descq_sw_ctxt *ctxt,
@@ -227,6 +261,10 @@ int eqdma_pfetch_ctx_conf(void *dev_hndl, uint16_t hw_qid,
 
 int eqdma_cmpt_ctx_conf(void *dev_hndl, uint16_t hw_qid,
 			struct qdma_descq_cmpt_ctxt *ctxt,
+			enum qdma_hw_access_type access_type);
+
+int eqdma_fmap_conf(void *dev_hndl, uint16_t func_id,
+			struct qdma_fmap_cfg *config,
 			enum qdma_hw_access_type access_type);
 
 int eqdma_indirect_intr_ctx_conf(void *dev_hndl, uint16_t ring_index,
@@ -257,6 +295,7 @@ const char *eqdma_hw_get_error_name(uint32_t err_idx);
 int eqdma_hw_error_enable(void *dev_hndl, uint32_t err_idx);
 
 int eqdma_read_dump_queue_context(void *dev_hndl,
+		uint16_t func_id,
 		uint16_t qid_hw,
 		uint8_t st,
 		enum qdma_dev_q_type q_type,
@@ -266,7 +305,7 @@ int eqdma_get_device_attributes(void *dev_hndl,
 		struct qdma_dev_attributes *dev_info);
 
 int eqdma_get_user_bar(void *dev_hndl, uint8_t is_vf,
-		uint8_t func_id, uint8_t *user_bar);
+		uint16_t func_id, uint8_t *user_bar);
 
 int eqdma_dump_config_reg_list(void *dev_hndl,
 		uint32_t total_regs,
