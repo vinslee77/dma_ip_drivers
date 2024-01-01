@@ -30,6 +30,9 @@
 #include "xdma_cdev.h"
 #include "version.h"
 
+extern int xpdev_create_uart(struct xdma_pci_dev *xpdev);
+extern int xpdev_destroy_uart(struct xdma_pci_dev *xpdev);
+
 #define DRV_MODULE_NAME		"xdma"
 #define DRV_MODULE_DESC		"Xilinx XDMA Reference Driver"
 
@@ -122,6 +125,7 @@ static void xpdev_free(struct xdma_pci_dev *xpdev)
 
 	pr_info("xpdev 0x%p, destroy_interfaces, xdev 0x%p.\n", xpdev, xdev);
 	xpdev_destroy_interfaces(xpdev);
+	xpdev_destroy_uart(xpdev);
 	xpdev->xdev = NULL;
 	pr_info("xpdev 0x%p, xdev 0x%p xdma_device_close.\n", xpdev, xdev);
 	xdma_device_close(xpdev->pdev, xdev);
@@ -217,6 +221,11 @@ static int probe_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	xpdev->xdev = hndl;
 
 	rv = xpdev_create_interfaces(xpdev);
+	if (rv)
+		goto err_out;
+
+	/* create UART-Lite interface over PCIe XDMA */
+	rv = xpdev_create_uart(xpdev);
 	if (rv)
 		goto err_out;
 

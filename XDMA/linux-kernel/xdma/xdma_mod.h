@@ -45,6 +45,8 @@
 #include <linux/version.h>
 #include <linux/uio.h>
 #include <linux/spinlock_types.h>
+#include <linux/serial.h>
+#include <linux/serial_core.h>
 
 #include "libxdma.h"
 #include "xdma_thread.h"
@@ -53,6 +55,7 @@
 #define MAGIC_DEVICE	0xDDDDDDDDUL
 #define MAGIC_CHAR	0xCCCCCCCCUL
 #define MAGIC_BITSTREAM 0xBBBBBBBBUL
+#define MAGIC_UART 	0xAAAAAAAAUL
 
 extern unsigned int desc_blen_max;
 extern unsigned int h2c_timeout;
@@ -69,6 +72,18 @@ struct xdma_cdev {
 	struct xdma_engine *engine;	/* engine instance, if needed */
 	struct xdma_user_irq *user_irq;	/* IRQ value, if needed */
 	struct device *sys_device;	/* sysfs device */
+	spinlock_t lock;
+};
+
+struct xdma_uart_device {
+	unsigned long magic;		/* structure ID for sanity checks */
+	struct xdma_pci_dev *xpdev;
+	struct xdma_dev *xdev;
+	struct uart_driver uart_drv;	/* uart driver embedded struct */
+	struct uart_port *uart_port;	/* uart port bound to the uart_driver */
+	int bar;			/* PCIe BAR for HW access, if needed */
+	unsigned long base;		/* bar access offset */
+	struct xdma_user_irq *user_irq;	/* IRQ value, if needed */
 	spinlock_t lock;
 };
 
@@ -96,6 +111,9 @@ struct xdma_pci_dev {
 	struct xdma_cdev bypass_cdev_base;
 
 	struct xdma_cdev xvc_cdev;
+
+	/* uart device over PCIe */
+	struct xdma_uart_device uart_dev;
 
 	void *data;
 };
