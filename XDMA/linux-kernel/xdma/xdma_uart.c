@@ -74,11 +74,13 @@ static struct uart_port *console_port;
  * reg_ops: Functions to read/write registers
  * baud: The baud rate configured when this device was synthesized
  * cflags: The cflags for parity and data bits
+ * xpdev: pointer to structure xdma_pci_dev
  */
 struct uartlite_data {
 	const struct uartlite_reg_ops *reg_ops;
 	unsigned int baud;
 	tcflag_t cflags;
+	struct xdma_pci_dev *xpdev;
 };
 
 struct uartlite_reg_ops {
@@ -284,12 +286,10 @@ static void ulite_break_ctl(struct uart_port *port, int ctl)
 
 static int ulite_startup(struct uart_port *port)
 {
-	struct xdma_pci_dev *xpdev;
-	struct xdma_dev *xdev;
+	struct uartlite_data *pdata = port->private_data;
+	struct xdma_pci_dev *xpdev = pdata->xpdev;
+	struct xdma_dev *xdev = xpdev->xdev;
 	int ret;
-
-	xpdev = (struct xdma_pci_dev *)dev_get_drvdata(port->dev);
-	xdev = xpdev->xdev;
 
 	/*FIXME*/
 	ret = xdma_user_isr_register(xdev, (1 << port->line), ulite_isr, port);
@@ -305,12 +305,10 @@ static int ulite_startup(struct uart_port *port)
 
 static void ulite_shutdown(struct uart_port *port)
 {
-	struct xdma_pci_dev *xpdev;
-	struct xdma_dev *xdev;
+	struct uartlite_data *pdata = port->private_data;
+	struct xdma_pci_dev *xpdev = pdata->xpdev;
+	struct xdma_dev *xdev = xpdev->xdev;
 	int ret;
-
-	xpdev = (struct xdma_pci_dev *)dev_get_drvdata(port->dev);
-	xdev = xpdev->xdev;
 
 	uart_out32(0, ULITE_CONTROL, port);
 	uart_in32(ULITE_CONTROL, port); /* dummy */
@@ -372,15 +370,10 @@ static void ulite_release_port(struct uart_port *port)
 static int ulite_request_port(struct uart_port *port)
 {
 	struct uartlite_data *pdata = port->private_data;
-	struct xdma_pci_dev *xpdev;
-	struct xdma_dev *xdev;
-	struct xdma_uart_device *xuart_dev;
+	struct xdma_pci_dev *xpdev = pdata->xpdev;
+	struct xdma_dev *xdev = xpdev->xdev;
+	struct xdma_uart_device *xuart_dev = &xpdev->uart_dev;
 	int ret;
-
-	xpdev = (struct xdma_pci_dev *)dev_get_drvdata(port->dev);
-
-	xdev = xpdev->xdev;
-	xuart_dev = &xpdev->uart_dev;
 
 	pr_debug("ulite console: port=%p; port->mapbase=%llx\n",
 		 port, (unsigned long long) port->mapbase);
@@ -693,12 +686,12 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	xuart_dev->uart_drv.owner = THIS_MODULE;
 	xuart_dev->uart_drv.driver_name	= "xdma-uartlite";
 	xuart_dev->uart_drv.dev_name = ULITE_NAME;
-	xuart_dev->uart_drv.major = xpdev->major;
-	xuart_dev->uart_drv.minor = ULITE_MINOR,
-	xuart_dev->uart_drv.nr = ULITE_NR_UARTS,
-	xuart_dev->uart_drv.cons = &ulite_console,
+	xuart_dev->uart_drv.major = ULITE_MAJOR;
+	xuart_dev->uart_drv.minor = ULITE_MINOR;
+	xuart_dev->uart_drv.nr = ULITE_NR_UARTS;
+	xuart_dev->uart_drv.cons = &ulite_console;
 
-	ulite_console.data = &xuart_dev->uart_drv,
+	ulite_console.data = &xuart_dev->uart_drv;
 
 	/* allocate private data of uart lite device */
 	pdata = devm_kzalloc(&xpdev->pdev->dev, sizeof(struct uartlite_data),
@@ -709,6 +702,7 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	/* setup default uart parameters */
 	pdata->baud = 115200;
 	pdata->cflags = CS8;
+	pdata->xpdev = xpdev;
 
 	if (!xuart_dev->uart_drv.state) {
 		dev_dbg(&xpdev->pdev->dev, "uartlite: calling uart_register_driver()\n");
