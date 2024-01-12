@@ -1405,7 +1405,7 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 	user_irq = read_register(&irq_regs->user_int_request);
 	dbg_irq("user_irq = 0x%08x\n", user_irq);
 
-	if (user_irq) {
+	/*if (user_irq) {
 		int user = 0;
 		u32 mask = 1;
 		int max = xdev->user_max;
@@ -1416,7 +1416,7 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 				user_irq_service(irq, &xdev->user_irq[user]);
 			}
 		}
-	}
+	}*/
 
 	mask = ch_irq & xdev->mask_irq_h2c;
 	if (mask) {
@@ -1455,6 +1455,9 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 			}
 		}
 	}
+
+	//triggering user irq #0 in any conditions
+	user_irq_service(irq, &xdev->user_irq[0]);
 
 	xdev->irq_count++;
 	return IRQ_HANDLED;
