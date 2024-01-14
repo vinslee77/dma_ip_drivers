@@ -726,14 +726,20 @@ static int destroy_uart_device(struct xdma_uart_device *xuart_dev)
 void xpdev_destroy_uart(struct xdma_pci_dev *xpdev)
 {
 	struct xdma_dev *xdev = xpdev->xdev;
+	struct xdma_uart_device *xuart_dev = &xpdev->uart_dev;
+	struct uart_driver *uart_drv = &xuart_dev->uart_drv;
 	int rv;
 
 	/* remove UART device */
 	if (xdev->user_bar_idx >= 0) {
-		rv = destroy_uart_device(&xpdev->uart_dev);
+		rv = destroy_uart_device(xuart_dev);
 		if (rv < 0)
 			pr_err("Failed to destroy uart device driver (ttyUL) error 0x%x\n", rv);
 	}
+
+	/* unregister UART driver */
+	if(uart_drv->state)
+		uart_unregister_driver(uart_drv);
 }
 
 int xpdev_create_uart(struct xdma_pci_dev *xpdev)
