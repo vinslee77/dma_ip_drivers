@@ -34,7 +34,8 @@
 #define ULITE_NAME		"ttyUL"
 #define ULITE_MAJOR		204
 #define ULITE_MINOR		187
-#define ULITE_NR_UARTS		1		
+#define ULITE_NR_XDMA_INSTS	16
+#define ULITE_NR_UART_PER_INST	1
 
 #define ULITE_BAR_OFFSET_DFLT	0x11000
 
@@ -65,9 +66,6 @@
 #define ULITE_CONTROL_RST_RX	0x02
 #define ULITE_CONTROL_IE	0x10
 #define UART_AUTOSUSPEND_TIMEOUT	3000	/* ms */
-
-/* Static pointer to console port */
-static struct uart_port *console_port;
 
 /**
  * struct uartlite_data: Driver private data
@@ -132,7 +130,7 @@ static inline void uart_out32(u32 val, u32 offset, struct uart_port *port)
 	pdata->reg_ops->out(val, port->membase + offset);
 }
 
-static struct uart_port ulite_ports[ULITE_NR_UARTS];
+static struct uart_port ulite_ports[ULITE_NR_XDMA_INSTS][ULITE_NR_UART_PER_INST];
 
 /* ---------------------------------------------------------------------
  * Core UART driver operations
@@ -450,137 +448,6 @@ static const struct uart_ops ulite_ops = {
 };
 
 /* ---------------------------------------------------------------------
- * Console driver operations
- */
-
-static void ulite_console_wait_tx(struct uart_port *port)
-{
-	u8 val;
-
-	/*
-	 * Spin waiting for TX fifo to have space available.
-	 * When using the Microblaze Debug Module this can take up to 1s
-	 */
-	if (read_poll_timeout_atomic(uart_in32, val, !(val & ULITE_STATUS_TXFULL),
-				     0, 1000000, false, ULITE_STATUS, port))
-		dev_warn(port->dev,
-			 "timeout waiting for TX buffer empty\n");
-}
-
-static void ulite_console_putchar(struct uart_port *port, int ch)
-{
-	ulite_console_wait_tx(port);
-	uart_out32((unsigned char)ch, ULITE_TX, port);
-}
-
-static void ulite_console_write(struct console *co, const char *s,
-				unsigned int count)
-{
-	struct uart_port *port = console_port;
-	unsigned long flags;
-	unsigned int ier;
-	int locked = 1;
-
-	if (oops_in_progress) {
-		locked = spin_trylock_irqsave(&port->lock, flags);
-	} else
-		spin_lock_irqsave(&port->lock, flags);
-
-	/* save and disable interrupt */
-	ier = uart_in32(ULITE_STATUS, port) & ULITE_STATUS_IE;
-	uart_out32(0, ULITE_CONTROL, port);
-
-	uart_console_write(port, s, count, ulite_console_putchar);
-
-	ulite_console_wait_tx(port);
-
-	/* restore interrupt state */
-	if (ier)
-		uart_out32(ULITE_CONTROL_IE, ULITE_CONTROL, port);
-
-	if (locked)
-		spin_unlock_irqrestore(&port->lock, flags);
-}
-
-static int ulite_console_setup(struct console *co, char *options)
-{
-	struct uart_port *port = NULL;
-	int baud = 9600;
-	int bits = 8;
-	int parity = 'n';
-	int flow = 'n';
-
-	if (co->index >= 0 && co->index < ULITE_NR_UARTS)
-		port = ulite_ports + co->index;
-
-	/* Has the device been initialized yet? */
-	if (!port || !port->mapbase) {
-		pr_debug("console on ttyUL%i not present\n", co->index);
-		return -ENODEV;
-	}
-
-	console_port = port;
-
-	/* not initialized yet? */
-	if (!port->membase) {
-		if (ulite_request_port(port))
-			return -ENODEV;
-	}
-
-	if (options)
-		uart_parse_options(options, &baud, &parity, &bits, &flow);
-
-	return uart_set_options(port, co, baud, parity, bits, flow);
-}
-
-static struct console ulite_console = {
-	.name	= ULITE_NAME,
-	.write	= ulite_console_write,
-	.device	= uart_console_device,
-	.setup	= ulite_console_setup,
-	.flags	= CON_PRINTBUFFER,
-	.index	= -1, /* Specified on the cmdline (e.g. console=ttyUL0 ) */
-};
-
-static void early_uartlite_putc(struct uart_port *port, int c)
-{
-	/*
-	 * Limit how many times we'll spin waiting for TX FIFO status.
-	 * This will prevent lockups if the base address is incorrectly
-	 * set, or any other issue on the UARTLITE.
-	 * This limit is pretty arbitrary, unless we are at about 10 baud
-	 * we'll never timeout on a working UART.
-	 */
-	unsigned retries = 1000000;
-
-	while (--retries &&
-	       (readl(port->membase + ULITE_STATUS) & ULITE_STATUS_TXFULL))
-		;
-
-	/* Only attempt the iowrite if we didn't timeout */
-	if (retries)
-		writel((unsigned char)c & 0xff, port->membase + ULITE_TX);
-}
-
-static void early_uartlite_write(struct console *console,
-				 const char *s, unsigned n)
-{
-	struct earlycon_device *device = console->data;
-	uart_console_write(&device->port, s, n, early_uartlite_putc);
-}
-
-static int __init early_uartlite_setup(struct earlycon_device *device,
-				       const char *options)
-{
-	if (!device->port.membase)
-		return -ENODEV;
-
-	device->con->write = early_uartlite_write;
-	return 0;
-}
-EARLYCON_DECLARE(uartlite, early_uartlite_setup);
-
-/* ---------------------------------------------------------------------
  * Port assignment functions (mapping devices to uart_port structures)
  */
 
@@ -594,28 +461,30 @@ EARLYCON_DECLARE(uartlite, early_uartlite_setup);
  */
 static int ulite_assign(struct xdma_uart_device *xuart_dev, int id, struct uartlite_data *pdata)
 {
-	struct uart_port *port;
+	struct uart_port *port = NULL;
 	struct xdma_pci_dev *xpdev = xuart_dev->xpdev;
+	struct xdma_dev *xdev = xpdev->xdev;
 	int rc;
+	int xdma_idx = xdev->idx;
 
 	/* if id = -1; then scan for a free id and use that */
 	if (id < 0) {
-		for (id = 0; id < ULITE_NR_UARTS; id++)
-			if (ulite_ports[id].mapbase == 0)
+		for (id = 0; id < ULITE_NR_UART_PER_INST; id++)
+			if (ulite_ports[xdma_idx][id].mapbase == 0)
 				break;
 	}
-	if (id < 0 || id >= ULITE_NR_UARTS) {
-		dev_err(&xpdev->pdev->dev, "%s%i too large\n", ULITE_NAME, id);
+	if (id < 0 || id >= ULITE_NR_UART_PER_INST) {
+		dev_err(&xpdev->pdev->dev, "xdma%d %s%i too large\n", xdma_idx, ULITE_NAME, id);
 		return -EINVAL;
 	}
 
-	if ((ulite_ports[id].mapbase) && (ulite_ports[id].mapbase != ULITE_BAR_OFFSET_DFLT)) {
-		dev_err(&xpdev->pdev->dev, "cannot assign to %s%i; it is already in use\n",
-			ULITE_NAME, id);
+	if (ulite_ports[xdma_idx][id].mapbase == ULITE_BAR_OFFSET_DFLT) {
+		dev_err(&xpdev->pdev->dev, "cannot assign to xdma%d %s%i; it is already in use\n",
+			xdma_idx, ULITE_NAME, id);
 		return -EBUSY;
 	}
 
-	port = &ulite_ports[id];
+	port = &ulite_ports[xdma_idx][id];
 
 	spin_lock_init(&port->lock);
 	port->fifosize = 16;
@@ -632,6 +501,7 @@ static int ulite_assign(struct xdma_uart_device *xuart_dev, int id, struct uartl
 	/*FIXME*/
 	port->dev = &xpdev->pdev->dev;
 	port->type = PORT_UNKNOWN;
+	/*FIXME*/
 	port->line = id;
 	port->private_data = pdata;
 
@@ -640,6 +510,7 @@ static int ulite_assign(struct xdma_uart_device *xuart_dev, int id, struct uartl
 	if (rc) {
 		dev_err(&xpdev->pdev->dev, "uart_add_one_port() failed; err=%i\n", rc);
 		port->mapbase = 0;
+		port->iobase = 0; /* mark port unused */
 		return rc;
 	}
 	xuart_dev->uart_port = port;
@@ -661,6 +532,7 @@ static int ulite_release(struct xdma_uart_device *xuart_dev)
 		if (rc < 0)
 			return rc;
 		port->mapbase = 0;
+		port->iobase = 0; /* mark port unused */
 		xuart_dev->uart_port = NULL;
 	}
 
@@ -673,6 +545,7 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	int rv;
 	struct xdma_dev *xdev = xpdev->xdev;
 	struct uartlite_data *pdata;
+	char name[16];
 
 	spin_lock_init(&xuart_dev->lock);
 	/*
@@ -683,15 +556,14 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	xuart_dev->xdev = xdev;
 	xuart_dev->bar = bar;
 
+	sprintf(name, "xdma%d_%s", xdev->idx, ULITE_NAME);
+
 	xuart_dev->uart_drv.owner = THIS_MODULE;
 	xuart_dev->uart_drv.driver_name	= "xdma-uartlite";
-	xuart_dev->uart_drv.dev_name = ULITE_NAME;
-	xuart_dev->uart_drv.major = ULITE_MAJOR;
+	xuart_dev->uart_drv.dev_name = name;
+	xuart_dev->uart_drv.major = ULITE_MAJOR + xdev->idx;
 	xuart_dev->uart_drv.minor = ULITE_MINOR;
-	xuart_dev->uart_drv.nr = ULITE_NR_UARTS;
-	xuart_dev->uart_drv.cons = &ulite_console;
-
-	ulite_console.data = &xuart_dev->uart_drv;
+	xuart_dev->uart_drv.nr = ULITE_NR_UART_PER_INST;
 
 	/* allocate private data of uart lite device */
 	pdata = devm_kzalloc(&xpdev->pdev->dev, sizeof(struct uartlite_data),
