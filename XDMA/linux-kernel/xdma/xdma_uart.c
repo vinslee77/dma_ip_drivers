@@ -130,7 +130,7 @@ static inline void uart_out32(u32 val, u32 offset, struct uart_port *port)
 	pdata->reg_ops->out(val, port->membase + offset);
 }
 
-static struct uart_port ulite_ports[ULITE_NR_XDMA_INSTS][ULITE_NR_UART_PER_INST];
+static struct uart_port ulite_ports[ULITE_NR_XDMA_INSTS][ULITE_NR_UART_PER_INST + 1];
 
 /* ---------------------------------------------------------------------
  * Core UART driver operations
@@ -382,6 +382,9 @@ static int ulite_request_port(struct uart_port *port)
 		return -EBUSY;
 	}
 
+	pr_debug("ulite console: port=%p; port->membase=%pS\n",
+		 port, port->membase);
+
 	pdata->reg_ops = &uartlite_be;
 	ret = uart_in32(ULITE_CONTROL, port);
 	uart_out32(ULITE_CONTROL_RST_TX, ULITE_CONTROL, port);
@@ -559,7 +562,7 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	sprintf(name, "xdma%d_%s", xdev->idx, ULITE_NAME);
 
 	xuart_dev->uart_drv.owner = THIS_MODULE;
-	xuart_dev->uart_drv.driver_name	= "xdma-uartlite";
+	xuart_dev->uart_drv.driver_name	= name;
 	xuart_dev->uart_drv.dev_name = name;
 	xuart_dev->uart_drv.major = ULITE_MAJOR + xdev->idx;
 	xuart_dev->uart_drv.minor = ULITE_MINOR;
