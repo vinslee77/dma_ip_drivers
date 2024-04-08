@@ -31,7 +31,10 @@
 #include "version.h"
 
 extern int xpdev_create_uart(struct xdma_pci_dev *xpdev);
-extern int xpdev_destroy_uart(struct xdma_pci_dev *xpdev);
+extern void xpdev_destroy_uart(struct xdma_pci_dev *xpdev);
+
+extern int xdma_uart_init(void);
+extern void xdma_uart_exit(void);
 
 #define DRV_MODULE_NAME		"xdma"
 #define DRV_MODULE_DESC		"Xilinx XDMA Reference Driver"
@@ -376,6 +379,10 @@ static int xdma_mod_init(void)
 	if (rv < 0)
 		return rv;
 
+	rv = xdma_uart_init();
+	if (rv < 0)
+		return rv;
+
 	return pci_register_driver(&pci_driver);
 }
 
@@ -385,6 +392,7 @@ static void xdma_mod_exit(void)
 	dbg_init("pci_unregister_driver.\n");
 	pci_unregister_driver(&pci_driver);
 	xdma_cdev_cleanup();
+	xdma_uart_exit();
 }
 
 module_init(xdma_mod_init);

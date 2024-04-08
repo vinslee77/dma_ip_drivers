@@ -79,12 +79,10 @@ struct xdma_uart_device {
 	unsigned long magic;		/* structure ID for sanity checks */
 	struct xdma_pci_dev *xpdev;
 	struct xdma_dev *xdev;
-	struct uart_driver uart_drv;	/* uart driver embedded struct */
-	struct uart_port *uart_port;	/* uart port bound to the uart_driver */
+	struct uart_port uart_port;	/* uart port bound to the uart_driver */
 	int bar;			/* PCIe BAR for HW access, if needed */
 	unsigned long base;		/* bar access offset */
 	struct xdma_user_irq *user_irq;	/* IRQ value, if needed */
-	spinlock_t lock;
 };
 
 /* XDMA PCIe device specific book-keeping */

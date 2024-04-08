@@ -31,11 +31,10 @@
 #include "libxdma.h"
 #include "libxdma_api.h"
 
-#define ULITE_NAME		"ttyUL"
+#define ULITE_NAME		"ttyULP"
 #define ULITE_MAJOR		204
 #define ULITE_MINOR		187
-#define ULITE_NR_XDMA_INSTS	16
-#define ULITE_NR_UART_PER_INST	1
+#define ULITE_NR_UARTS		16
 
 #define ULITE_BAR_OFFSET_DFLT	0x11000
 
@@ -130,8 +129,6 @@ static inline void uart_out32(u32 val, u32 offset, struct uart_port *port)
 	pdata->reg_ops->out(val, port->membase + offset);
 }
 
-static struct uart_port ulite_ports[ULITE_NR_XDMA_INSTS][ULITE_NR_UART_PER_INST + 1];
-
 /* ---------------------------------------------------------------------
  * Core UART driver operations
  */
@@ -216,7 +213,7 @@ static int ulite_transmit(struct uart_port *port, int stat)
 
 static irqreturn_t ulite_isr(int irq, void *dev_id)
 {
-	struct uart_port *port = dev_id;
+	struct uart_port *port = (struct uart_port *)dev_id;
 	int stat, busy, n = 0;
 	unsigned long flags;
 
@@ -289,14 +286,14 @@ static int ulite_startup(struct uart_port *port)
 	struct xdma_dev *xdev = xpdev->xdev;
 	int ret;
 
-	/*FIXME*/
-	ret = xdma_user_isr_register(xdev, (1 << port->line), ulite_isr, port);
-	if (ret)
-		return ret;
-
 	uart_out32(ULITE_CONTROL_RST_RX | ULITE_CONTROL_RST_TX,
 		ULITE_CONTROL, port);
 	uart_out32(ULITE_CONTROL_IE, ULITE_CONTROL, port);
+
+	/*FIXME*/
+	ret = xdma_user_isr_register(xdev, (1 << port->irq), ulite_isr, port);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -310,8 +307,9 @@ static void ulite_shutdown(struct uart_port *port)
 
 	uart_out32(0, ULITE_CONTROL, port);
 	uart_in32(ULITE_CONTROL, port); /* dummy */
+
 	/*FIXME*/
-	ret = xdma_user_isr_register(xdev, (1 << port->line), NULL, NULL);
+	ret = xdma_user_isr_register(xdev, (1 << port->irq), NULL, NULL);
 	if (ret)
 		return;
 }
@@ -450,6 +448,15 @@ static const struct uart_ops ulite_ops = {
 #endif
 };
 
+static struct uart_driver ulite_uart_driver = {
+	.owner		= THIS_MODULE,
+	.driver_name	= "xdma-uartlite",
+	.dev_name	= ULITE_NAME,
+	.major		= ULITE_MAJOR,
+	.minor		= ULITE_MINOR,
+	.nr		= ULITE_NR_UARTS,
+};
+
 /* ---------------------------------------------------------------------
  * Port assignment functions (mapping devices to uart_port structures)
  */
@@ -457,37 +464,19 @@ static const struct uart_ops ulite_ops = {
 /** ulite_assign: register a uartlite device with the driver
  *
  * @xuart_dev: pointer to XDMA UART device structure
- * @id: requested id number.  Pass -1 for automatic port assignment
  * @pdata: private data for uartlite
  *
  * Returns: 0 on success, <0 otherwise
  */
-static int ulite_assign(struct xdma_uart_device *xuart_dev, int id, struct uartlite_data *pdata)
+static int ulite_assign(struct xdma_uart_device *xuart_dev, struct uartlite_data *pdata)
 {
-	struct uart_port *port = NULL;
+	struct uart_port *port = &xuart_dev->uart_port;
 	struct xdma_pci_dev *xpdev = xuart_dev->xpdev;
 	struct xdma_dev *xdev = xpdev->xdev;
 	int rc;
 	int xdma_idx = xdev->idx;
 
-	/* if id = -1; then scan for a free id and use that */
-	if (id < 0) {
-		for (id = 0; id < ULITE_NR_UART_PER_INST; id++)
-			if (ulite_ports[xdma_idx][id].mapbase == 0)
-				break;
-	}
-	if (id < 0 || id >= ULITE_NR_UART_PER_INST) {
-		dev_err(&xpdev->pdev->dev, "xdma%d %s%i too large\n", xdma_idx, ULITE_NAME, id);
-		return -EINVAL;
-	}
-
-	if (ulite_ports[xdma_idx][id].mapbase == ULITE_BAR_OFFSET_DFLT) {
-		dev_err(&xpdev->pdev->dev, "cannot assign to xdma%d %s%i; it is already in use\n",
-			xdma_idx, ULITE_NAME, id);
-		return -EBUSY;
-	}
-
-	port = &ulite_ports[xdma_idx][id];
+	memset(port, 0, sizeof(*port));
 
 	spin_lock_init(&port->lock);
 	port->fifosize = 16;
@@ -499,24 +488,22 @@ static int ulite_assign(struct xdma_uart_device *xuart_dev, int id, struct uartl
 	port->membase = NULL; 
 	port->ops = &ulite_ops;
 	/*FIXME*/
-	port->irq = id;
+	port->irq = 0; /* we support only one uart port for each xdma instance */
 	port->flags = UPF_BOOT_AUTOCONF;
 	/*FIXME*/
 	port->dev = &xpdev->pdev->dev;
 	port->type = PORT_UNKNOWN;
 	/*FIXME*/
-	port->line = id;
+	port->line = xdma_idx;
 	port->private_data = pdata;
 
 	/* Register the port */
-	rc = uart_add_one_port(&xuart_dev->uart_drv, port);
+	rc = uart_add_one_port(&ulite_uart_driver, port);
 	if (rc) {
 		dev_err(&xpdev->pdev->dev, "uart_add_one_port() failed; err=%i\n", rc);
 		port->mapbase = 0;
-		port->iobase = 0; /* mark port unused */
 		return rc;
 	}
-	xuart_dev->uart_port = port;
 
 	return 0;
 }
@@ -527,16 +514,15 @@ static int ulite_assign(struct xdma_uart_device *xuart_dev, int id, struct uartl
  */
 static int ulite_release(struct xdma_uart_device *xuart_dev)
 {
-	struct uart_port *port = xuart_dev->uart_port;
-	int rc = 0;
-
-	if (port) {
-		rc = uart_remove_one_port(&xuart_dev->uart_drv, port);
+	int rc;
+	
+	if (xuart_dev->uart_port.mapbase == ULITE_BAR_OFFSET_DFLT)
+	{
+		rc = uart_remove_one_port(&ulite_uart_driver, &xuart_dev->uart_port);
 		if (rc < 0)
 			return rc;
-		port->mapbase = 0;
-		port->iobase = 0; /* mark port unused */
-		xuart_dev->uart_port = NULL;
+				
+		xuart_dev->uart_port.mapbase = 0;
 	}
 
 	return 0;
@@ -548,9 +534,7 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	int rv;
 	struct xdma_dev *xdev = xpdev->xdev;
 	struct uartlite_data *pdata;
-	char name[16];
 
-	spin_lock_init(&xuart_dev->lock);
 	/*
 	 * do not register yet, create kobjects and name them,
 	 */
@@ -558,15 +542,6 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	xuart_dev->xpdev = xpdev;
 	xuart_dev->xdev = xdev;
 	xuart_dev->bar = bar;
-
-	sprintf(name, "xdma%d_%s", xdev->idx, ULITE_NAME);
-
-	xuart_dev->uart_drv.owner = THIS_MODULE;
-	xuart_dev->uart_drv.driver_name	= name;
-	xuart_dev->uart_drv.dev_name = name;
-	xuart_dev->uart_drv.major = ULITE_MAJOR + xdev->idx;
-	xuart_dev->uart_drv.minor = ULITE_MINOR;
-	xuart_dev->uart_drv.nr = ULITE_NR_UART_PER_INST;
 
 	/* allocate private data of uart lite device */
 	pdata = devm_kzalloc(&xpdev->pdev->dev, sizeof(struct uartlite_data),
@@ -579,16 +554,7 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	pdata->cflags = CS8;
 	pdata->xpdev = xpdev;
 
-	if (!xuart_dev->uart_drv.state) {
-		dev_dbg(&xpdev->pdev->dev, "uartlite: calling uart_register_driver()\n");
-		rv = uart_register_driver(&xuart_dev->uart_drv);
-		if (rv < 0) {
-			dev_err(&xpdev->pdev->dev, "Failed to register uart driver\n");
-			return rv;
-		}
-	}
-
-	rv = ulite_assign(xuart_dev, -1, pdata);
+	rv = ulite_assign(xuart_dev, pdata);
 
 	return rv;
 }
@@ -602,19 +568,16 @@ void xpdev_destroy_uart(struct xdma_pci_dev *xpdev)
 {
 	struct xdma_dev *xdev = xpdev->xdev;
 	struct xdma_uart_device *xuart_dev = &xpdev->uart_dev;
-	struct uart_driver *uart_drv = &xuart_dev->uart_drv;
 	int rv;
 
-	/* remove UART device */
+	/* remove UART port device */
 	if (xdev->user_bar_idx >= 0) {
 		rv = destroy_uart_device(xuart_dev);
 		if (rv < 0)
-			pr_err("Failed to destroy uart device driver (ttyUL) error 0x%x\n", rv);
+			pr_err("Failed to destroy uart device driver (ttyULP) error 0x%x\n", rv);
 	}
 
-	/* unregister UART driver */
-	if(uart_drv->state)
-		uart_unregister_driver(uart_drv);
+	memset(xuart_dev, 0, sizeof(*xuart_dev));
 }
 
 int xpdev_create_uart(struct xdma_pci_dev *xpdev)
@@ -626,7 +589,7 @@ int xpdev_create_uart(struct xdma_pci_dev *xpdev)
 	if (xdev->user_bar_idx >= 0) {
 		rv = create_uart_device(xpdev, &xpdev->uart_dev, xdev->user_bar_idx);
 		if (rv < 0) {
-			pr_err("create uart device driver (ttyUL) failed\n");
+			pr_err("create uart device driver (ttyULP) failed\n");
 			goto fail;
 		}
 	}
@@ -637,4 +600,24 @@ fail:
 	rv = -1;
 	xpdev_destroy_uart(xpdev);
 	return rv;
+}
+
+int xdma_uart_init(void)
+{
+	int rv = 0;
+	if (!ulite_uart_driver.state) {
+		printk(KERN_ERR "%s: uartlite: calling uart_register_driver()\n", __func__);
+		rv = uart_register_driver(&ulite_uart_driver);
+		if (rv < 0) {
+			printk(KERN_ERR "%s: Failed to register uart driver\n", __func__);
+			return rv;
+		}
+	}
+	return rv;
+}
+
+void xdma_uart_exit(void)
+{
+	if(ulite_uart_driver.state)
+		uart_unregister_driver(&ulite_uart_driver);
 }
