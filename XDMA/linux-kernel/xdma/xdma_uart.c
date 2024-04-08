@@ -214,11 +214,19 @@ static int ulite_transmit(struct uart_port *port, int stat)
 static irqreturn_t ulite_isr(int irq, void *dev_id)
 {
 	struct uart_port *port = (struct uart_port *)dev_id;
+	struct uartlite_data *pdata = port->private_data;
+	struct xdma_pci_dev *xpdev = pdata->xpdev;
+	struct xdma_uart_device *xuart_dev = &xpdev->uart_dev;
 	int stat, busy, n = 0;
 	unsigned long flags;
 
 	do {
 		spin_lock_irqsave(&port->lock, flags);
+		if(xuart_dev->port_st == UART_PORT_IDLE)
+		{
+			spin_unlock_irqrestore(&port->lock, flags);
+			return IRQ_HANDLED;
+		}
 		stat = uart_in32(ULITE_STATUS, port);
 		busy  = ulite_receive(port, stat);
 		busy |= ulite_transmit(port, stat);
@@ -283,18 +291,18 @@ static int ulite_startup(struct uart_port *port)
 {
 	struct uartlite_data *pdata = port->private_data;
 	struct xdma_pci_dev *xpdev = pdata->xpdev;
-	struct xdma_dev *xdev = xpdev->xdev;
-	int ret;
+	struct xdma_uart_device *xuart_dev = &xpdev->uart_dev;
+	unsigned long flags;
+
+	spin_lock_irqsave(&port->lock, flags);
+
+	xuart_dev->port_st = UART_PORT_OPEN;
 
 	uart_out32(ULITE_CONTROL_RST_RX | ULITE_CONTROL_RST_TX,
 		ULITE_CONTROL, port);
 	uart_out32(ULITE_CONTROL_IE, ULITE_CONTROL, port);
 
-	/*FIXME*/
-	ret = xdma_user_isr_register(xdev, (1 << port->irq), ulite_isr, port);
-	if (ret)
-		return ret;
-
+	spin_unlock_irqrestore(&port->lock, flags);
 	return 0;
 }
 
@@ -302,16 +310,16 @@ static void ulite_shutdown(struct uart_port *port)
 {
 	struct uartlite_data *pdata = port->private_data;
 	struct xdma_pci_dev *xpdev = pdata->xpdev;
-	struct xdma_dev *xdev = xpdev->xdev;
-	int ret;
+	struct xdma_uart_device *xuart_dev = &xpdev->uart_dev;
+	unsigned long flags;
 
+	spin_lock_irqsave(&port->lock, flags);
+
+	xuart_dev->port_st = UART_PORT_IDLE;
 	uart_out32(0, ULITE_CONTROL, port);
 	uart_in32(ULITE_CONTROL, port); /* dummy */
 
-	/*FIXME*/
-	ret = xdma_user_isr_register(xdev, (1 << port->irq), NULL, NULL);
-	if (ret)
-		return;
+	spin_unlock_irqrestore(&port->lock, flags);
 }
 
 static void ulite_set_termios(struct uart_port *port,
@@ -473,7 +481,7 @@ static int ulite_assign(struct xdma_uart_device *xuart_dev, struct uartlite_data
 	struct uart_port *port = &xuart_dev->uart_port;
 	struct xdma_pci_dev *xpdev = xuart_dev->xpdev;
 	struct xdma_dev *xdev = xpdev->xdev;
-	int rc;
+	int rc = 0;
 	int xdma_idx = xdev->idx;
 
 	memset(port, 0, sizeof(*port));
@@ -505,7 +513,9 @@ static int ulite_assign(struct xdma_uart_device *xuart_dev, struct uartlite_data
 		return rc;
 	}
 
-	return 0;
+	/*FIXME: register the user interrupt handler*/
+	rc = xdma_user_isr_register(xdev, (1 << port->irq), ulite_isr, port);
+	return rc;
 }
 
 /** ulite_release: register a uartlite device with the driver
@@ -514,7 +524,15 @@ static int ulite_assign(struct xdma_uart_device *xuart_dev, struct uartlite_data
  */
 static int ulite_release(struct xdma_uart_device *xuart_dev)
 {
+	struct xdma_pci_dev *xpdev = xuart_dev->xpdev;
+	struct xdma_dev *xdev = xpdev->xdev;
+	struct uart_port *port = &xuart_dev->uart_port;
 	int rc;
+
+	/*FIXME: unregister the user irq handler*/
+	rc = xdma_user_isr_register(xdev, (1 << port->irq), NULL, NULL);
+	if (rc)
+		return rc;
 	
 	if (xuart_dev->uart_port.mapbase == ULITE_BAR_OFFSET_DFLT)
 	{
@@ -542,6 +560,7 @@ static int create_uart_device(struct xdma_pci_dev *xpdev, struct xdma_uart_devic
 	xuart_dev->xpdev = xpdev;
 	xuart_dev->xdev = xdev;
 	xuart_dev->bar = bar;
+	xuart_dev->port_st = UART_PORT_IDLE;
 
 	/* allocate private data of uart lite device */
 	pdata = devm_kzalloc(&xpdev->pdev->dev, sizeof(struct uartlite_data),

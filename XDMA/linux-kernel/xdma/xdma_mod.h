@@ -75,6 +75,11 @@ struct xdma_cdev {
 	spinlock_t lock;
 };
 
+enum uart_port_status {
+	UART_PORT_IDLE = 0,
+	UART_PORT_OPEN
+};
+
 struct xdma_uart_device {
 	unsigned long magic;		/* structure ID for sanity checks */
 	struct xdma_pci_dev *xpdev;
@@ -83,6 +88,7 @@ struct xdma_uart_device {
 	int bar;			/* PCIe BAR for HW access, if needed */
 	unsigned long base;		/* bar access offset */
 	struct xdma_user_irq *user_irq;	/* IRQ value, if needed */
+	enum uart_port_status port_st;	/* UART port status */
 };
 
 /* XDMA PCIe device specific book-keeping */
