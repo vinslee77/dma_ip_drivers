@@ -1457,7 +1457,8 @@ static irqreturn_t xdma_isr(int irq, void *dev_id)
 	}
 
 	//triggering user irq #0 in any conditions
-	user_irq_service(irq, &xdev->user_irq[0]);
+	if(xdev->user_irq[0].handler != NULL)
+		user_irq_service(irq, &xdev->user_irq[0]);
 
 	xdev->irq_count++;
 	return IRQ_HANDLED;
