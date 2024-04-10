@@ -153,17 +153,20 @@ static ssize_t char_bypass_write(struct file *file, const char __user *buf,
 	spin_lock(&engine->lock);
 
 	/* Write descriptor data to the bypass BAR */
-	bypass_addr = xdev->bar[xdev->bypass_bar_idx];
-	bypass_addr = (void __iomem *)(
+	bypass_addr = xdev->bar[xdev->bypass_bar_idx] + *pos;
+	/*bypass_addr = (void __iomem *)(
 			(u32 __iomem *)bypass_addr + engine->bypass_offset
-			);
+			);*/
 	while (buf_offset < count) {
 		copy_err = copy_from_user(&desc_data, &buf[buf_offset],
 			sizeof(u32));
 		if (!copy_err) {
-			write_register(desc_data, bypass_addr,
-					bypass_addr - engine->bypass_offset);
+			/*write_register(desc_data, bypass_addr,
+					bypass_addr - engine->bypass_offset);*/
+			iowrite32(desc_data, bypass_addr);
 			buf_offset += sizeof(u32);
+			*pos += sizeof(u32);
+			bypass_addr = xdev->bar[xdev->bypass_bar_idx] + *pos;
 			rc = buf_offset;
 		} else {
 			dbg_sg("Error reading data from userspace buffer\n");
