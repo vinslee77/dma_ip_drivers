@@ -567,7 +567,7 @@ static ssize_t cdev_aio_read(struct kiocb *iocb, const struct iovec *io,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
 static ssize_t cdev_write_iter(struct kiocb *iocb, struct iov_iter *io)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
 	return cdev_aio_write(iocb, io->iov, io->nr_segs, io->iov_offset);
 #else
 	return cdev_aio_write(iocb, io->__iov, io->nr_segs, io->iov_offset);
@@ -576,7 +576,7 @@ static ssize_t cdev_write_iter(struct kiocb *iocb, struct iov_iter *io)
 
 static ssize_t cdev_read_iter(struct kiocb *iocb, struct iov_iter *io)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
 	return cdev_aio_read(iocb, io->iov, io->nr_segs, io->iov_offset);
 #else
 	return cdev_aio_read(iocb, io->__iov, io->nr_segs, io->iov_offset);

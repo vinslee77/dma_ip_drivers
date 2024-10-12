@@ -233,7 +233,7 @@ int bridge_mmap(struct file *file, struct vm_area_struct *vma)
 	 * prevent touching the pages (byte access) for swap-in,
 	 * and prevent the pages from being swapped out
 	 */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
 	vma->vm_flags |= VMEM_FLAGS;
 #else
 	vm_flags_set(vma, VMEM_FLAGS);

@@ -603,7 +603,7 @@ fail:
 
 int xdma_cdev_init(void)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,8,0)
 	g_xdma_class = class_create(THIS_MODULE, XDMA_NODE_NAME);
 #else
 	g_xdma_class = class_create(XDMA_NODE_NAME);
